@@ -71,7 +71,7 @@ highest high or lowest low of the preceding window, excluding the signal candle.
 The stop uses the most recent confirmed three-candle swing low for buys or swing
 high for sells, plus an outward buffer. Targets are the nearest two distinct
 confirmed swing prices beyond the signal close, found within the latest 200 closed
-bars. Missing levels or gaps cause a skip; there is no fixed-distance fallback.
+bars. No eligible level or gaps cause a skip; there is no fixed-distance fallback.
 Targets may be close together because prices are distinct, not grouped into zones.
 
 - Two positions of **0.06 lots** each per accepted signal.
@@ -146,6 +146,6 @@ are part of deployment. Stop the old executor before enabling one on a VPS.
 
 TP1 must be at least 5.0 gold price units (50 pips by this project’s convention)
 from the reference entry. Select the nearest eligible confirmed swing, then the
-next farther distinct swing for TP2. Skip if two eligible levels are unavailable.
+next farther distinct swing for TP2. If only one eligible level exists, both positions use it. Skip only if none exists.
 Replay checks the simulated fill; the executor checks the current quote and actual
 fill. A fill violating the minimum invokes incomplete-pair recovery.

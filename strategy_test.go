@@ -113,7 +113,7 @@ func TestStructuralTargets(t *testing.T) {
 		t.Fatal("gap pivot used")
 	}
 }
-func TestStructuralTargetsRequireTwoLevels(t *testing.T) {
+func TestStructuralTargetsRequireEligibleLevel(t *testing.T) {
 	b := targetHistory(CandleBatch{Candles: []Candle{}})
 	if _, _, ok := structuralTargets(b.Candles, 4110, true); ok {
 		t.Fatal("one target accepted")
@@ -141,8 +141,12 @@ func TestTargetMinimumDistance(t *testing.T) {
 		if !ok || a != 4100+d*5 || b != 4100+d*7 {
 			t.Fatal(buy, a, b, ok)
 		}
-		if _, _, ok = structuralTargets(bars, 4100+d*0.1, buy); ok {
-			t.Fatal("accepted only one eligible target")
+		a, b, ok = structuralTargets(bars, 4100+d*0.1, buy)
+		if !ok || a != 4100+d*7 || b != a {
+			t.Fatal("single level not reused", a, b, ok)
+		}
+		if _, _, ok = structuralTargets(bars, 4100+d*3, buy); ok {
+			t.Fatal("accepted no eligible target")
 		}
 	}
 }

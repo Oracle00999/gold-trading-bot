@@ -212,7 +212,7 @@ func (e *tickEngine) step(t Tick) {
 		rewardBlocked := e.cfg.MinRewardRisk > 0 && reward < risk*e.cfg.MinRewardRisk
 		dailyBlocked := e.cfg.DailyLossLimit > 0 && (e.dailyBlocked || risk > remaining)
 		postEquity := e.r.Balance - lots*e.cfg.Commission + (q-entry)*d*2*lots*e.cfg.Contract
-		if (s.TP1-entry)*d < minTargetDistance-1e-8 || (s.TP2-s.TP1)*d <= 0 || riskBlocked || rewardBlocked || dailyBlocked || len(e.positions) > 0 || t.Time/1000 >= s.CandleTime+360 || (q-s.Stop)*d < e.cfg.StopDistance || (entry-s.Stop)*d <= 0 || postEquity < 2*lots*e.cfg.MarginPerLot || e.r.Balance <= 0 {
+		if (s.TP1-entry)*d < minTargetDistance-1e-8 || (s.TP2-s.TP1)*d < 0 || riskBlocked || rewardBlocked || dailyBlocked || len(e.positions) > 0 || t.Time/1000 >= s.CandleTime+360 || (q-s.Stop)*d < e.cfg.StopDistance || (entry-s.Stop)*d <= 0 || postEquity < 2*lots*e.cfg.MarginPerLot || e.r.Balance <= 0 {
 			e.r.Rejected++
 			if riskBlocked {
 				e.r.RiskRejected++

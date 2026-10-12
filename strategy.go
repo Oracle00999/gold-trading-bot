@@ -153,5 +153,8 @@ func structuralTargets(bars []Candle, entry float64, buy bool) (float64, float64
 			second = price
 		}
 	}
-	return first, second, first > 0 && second > 0
+	if second == 0 {
+		second = first
+	}
+	return first, second, first > 0
 }

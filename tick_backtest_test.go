@@ -151,3 +151,23 @@ func TestMinimumTargetAtExecutableEntry(t *testing.T) {
 		}
 	}
 }
+
+func TestSharedTargetClosesBothLegs(t *testing.T) {
+	for _, buy := range []bool{true, false} {
+		e := newTickEngine(TickConfig{Lots: .06, Balance: 1000, Contract: 100, MarginPerLot: 100, MaxGap: 60000})
+		side, d, entry := "BUY", 1.0, 4100.2
+		if !buy {
+			side, d, entry = "SELL", -1, 4100
+		}
+		target := entry + d*6
+		e.pending = &Signal{Side: side, Stop: entry - d*2, TP1: target, TP2: target}
+		e.step(Tick{1000, 4100, 4100.2})
+		if len(e.positions) != 2 {
+			t.Fatal("shared target rejected")
+		}
+		e.step(Tick{2000, target - 0.2 + d, target + d})
+		if len(e.positions) != 0 || e.r.Balance <= 1000 {
+			t.Fatal("shared target did not close both legs", e.r.Balance)
+		}
+	}
+}

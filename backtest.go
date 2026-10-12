@@ -101,7 +101,7 @@ func simulateTrade(s *Signal, bars []Candle, cost BacktestCosts) (BacktestTrade,
 			if tr.Legs[0].Reason == "" && targetHit(tp1) {
 				closeLeg(0, tp1, "tp1", b.Time)
 				stop = entry
-				if stopped(stop) {
+				if tp1 != tp2 && stopped(stop) {
 					tr.Ambiguous = true
 					closeLeg(1, entry-direction*cost.Slippage, "breakeven", b.Time)
 				}

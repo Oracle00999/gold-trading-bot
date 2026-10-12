@@ -43,6 +43,6 @@ reproduces all broker failures. Keep raw exports and generated reports in `.loca
 
 TP1 must be at least 5.0 gold price units (50 pips by this project’s convention)
 from the reference entry. Select the nearest eligible confirmed swing, then the
-next farther distinct swing for TP2. Skip if two eligible levels are unavailable.
+next farther distinct swing for TP2. If only one eligible level exists, both positions use it. Skip only if none exists.
 Replay checks the simulated fill; the executor checks the current quote and actual
 fill. A fill violating the minimum invokes incomplete-pair recovery.
