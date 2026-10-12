@@ -1,0 +1,29 @@
+# Local credentials, runtime state, exports, and backups
+.local/
+.env
+.env.*
+!.env.example
+*.set
+*.pem
+*.key
+*.dump
+*.sql.gz
+GoldHistory-*.json
+GoldTicks-*.jsonl
+
+# Generated binaries, compiler output, and coverage
+/bin/
+/fx-trader
+/fx-trader.exe
+*.ex5
+*.log
+*.test
+coverage.out
+coverage.html
+
+# Editor and OS files
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
