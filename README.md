@@ -78,7 +78,7 @@ Targets may be close together because prices are distinct, not grouped into zone
 - Maximum **$200 estimated combined stop risk**.
 - **$1,000 daily equity loss gate**; blocks new entries, does not force-close a
   completed pair. Broker-day equity includes manual activity and cash movements.
-- Minimum combined full-target net reward/risk of **1:1**.
+- No minimum reward/risk filter: estimated loss may exceed target profit.
 - After the full TP1 position closes by broker take-profit, TP2's stop moves to its
   actual entry. This does not guarantee net break-even after fees or slippage.
 

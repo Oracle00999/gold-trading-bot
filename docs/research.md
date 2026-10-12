@@ -31,8 +31,8 @@ history is missing.
 go run . tick-backtest -file /path/to/GoldTicks-TIMESTAMP.jsonl -server YourBroker-Demo -balance 10000 -contract-size 100 -slippage 0.05 -commission 0 -margin-per-lot 1000 -stopout-percent 0 -stop-distance 0.10 -entry-delay-ms 200 -modify-delay-ms 200 -output .local/tick-backtest.json
 ```
 
-Defaults: two 0.06-lot legs, $200 pair risk, $1,000 daily equity gate, minimum
-combined full-target reward/risk 1. Configure with `-lots`, `-max-pair-risk`,
+Defaults: two 0.06-lot legs, $200 pair risk, $1,000 daily equity gate, no minimum
+reward/risk filter by default. Configure with `-lots`, `-max-pair-risk`,
 `-daily-loss-limit`, and `-min-reward-risk`. Zero disables an individual research
 risk filter. Both lookbacks (10 and 20) are compared.
 

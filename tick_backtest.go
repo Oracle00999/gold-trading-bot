@@ -308,7 +308,7 @@ func tickBacktestCLI() error {
 	f.Float64Var(&c.Lots, "lots", .06, "fixed lots per position (two positions)")
 	f.Float64Var(&c.MaxPairRisk, "max-pair-risk", 200, "maximum estimated USD loss across both legs; 0 disables")
 	f.Float64Var(&c.DailyLossLimit, "daily-loss-limit", 1000, "daily equity loss gate in USD; 0 disables")
-	f.Float64Var(&c.MinRewardRisk, "min-reward-risk", 1, "combined full-target net reward / estimated stop loss; 0 disables")
+	f.Float64Var(&c.MinRewardRisk, "min-reward-risk", 0, "combined full-target net reward / estimated stop loss; 0 disables")
 	f.Float64Var(&c.Balance, "balance", 10000, "starting USD balance")
 	f.Float64Var(&c.Contract, "contract-size", 100, "verified units/lot")
 	f.Float64Var(&c.Slippage, "slippage", -1, "adverse price slippage")

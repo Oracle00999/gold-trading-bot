@@ -1,5 +1,5 @@
 #property strict
-#property version "1.100"
+#property version "1.101"
 #property description "Demo-only executor for Go M3 signals. Attach once per demo account."
 #include <Trade/Trade.mqh>
 #include "ExecutionPolicy.mqh"
@@ -50,7 +50,7 @@ int OnInit() {
  trade.SetDeviationInPoints((ulong)MathCeil(SlippageAllowance/SymbolInfoDouble(TradeSymbol,SYMBOL_POINT)));
  LoadEvents();
  if(!EventSetTimer(1)) return INIT_FAILED;
- Record("started","Executor 1.100 loaded; reconciling broker positions and persistent state.");
+ Record("started","Executor 1.101 loaded; reconciling broker positions and persistent state.");
  Print("Demo executor ready. New entries: ",EnableEntries,"; lots 2 x 0.06; pair risk $200; daily gate $1000.");
  return INIT_SUCCEEDED;
 }
@@ -112,17 +112,13 @@ bool Estimate(ENUM_ORDER_TYPE side,double stop,double &risk,double &entry) {
  double distance=SymbolInfoInteger(TradeSymbol,SYMBOL_TRADE_STOPS_LEVEL)*point;
  if((buy?q.bid-stop:stop-q.ask)<=distance || (entry-stop)*d<=0) return Reject(StringFormat("Stop %.3f invalid for quote %.3f/%.3f; minimum distance %.3f",stop,q.bid,q.ask,distance));
  if((buy?intentTP1-q.bid:q.ask-intentTP1)<=distance) return Reject(StringFormat("TP1 %.3f too close to quote; minimum distance %.3f",intentTP1,distance));
- double loss=0,win1=0,win2=0,margin=0;
+ double loss=0,margin=0;
  if(!OrderCalcProfit(side,TradeSymbol,Lots,entry+d*SlippageAllowance,stop-d*SlippageAllowance,loss) ||
-    !OrderCalcProfit(side,TradeSymbol,Lots,entry,intentTP1,win1) ||
-    !OrderCalcProfit(side,TradeSymbol,Lots,entry,intentTP2,win2) ||
     !OrderCalcMargin(side,TradeSymbol,Lots,entry,margin)) return Reject(StringFormat("Broker risk/margin calculation failed: error %d",GetLastError()));
  risk=-2*loss+2*Lots*CommissionPerLot;
- double reward=win1+win2-2*Lots*CommissionPerLot;
  double remaining=DailyLoss-MathMax(0,State("baseline")-AccountInfoDouble(ACCOUNT_EQUITY));
  if(risk<=0 || risk>PairRisk) return Reject(StringFormat("Estimated pair loss $%.2f exceeds $%.2f limit or is invalid",risk,PairRisk));
  if(risk>remaining) return Reject(StringFormat("Estimated loss $%.2f exceeds remaining daily budget $%.2f",risk,remaining));
- if(reward<risk) return Reject(StringFormat("Combined target reward $%.2f below estimated stop loss $%.2f (minimum reward/risk 1.00)",reward,risk));
  double available=AccountInfoDouble(ACCOUNT_MARGIN_FREE),required=2*margin+risk;
  if(available<required) return Reject(StringFormat("Free margin $%.2f below conservative requirement $%.2f",available,required));
  return true;
@@ -373,7 +369,7 @@ void Publish() {
  deals+="]";
  string events="[";for(int i=0;i<ArraySize(eventQueue);i++) {if(i>0) events+=",";events+=eventQueue[i];}events+="]";
  double change=AccountInfoDouble(ACCOUNT_EQUITY)-State("baseline"),remaining=State("blocked")!=0?0:MathMax(0,DailyLoss-MathMax(0,-change));
- string body=StringFormat("{\"demo\":true,\"account\":\"%I64d\",\"server\":\"%s\",\"version\":\"1.100\",\"broker_time\":%I64d,\"connected\":%s,\"enabled\":%s,\"halted\":%s,\"daily_blocked\":%s,\"recovering\":%s,\"history_ok\":%s,\"daily_remaining\":%.8f,\"day_equity_change\":%.8f,\"positions\":%s,\"deals\":%s,\"events\":%s}",DemoLogin,Escape(DemoServer),(long)TimeCurrent(),Bool(TerminalInfoInteger(TERMINAL_CONNECTED)),Bool(EnableEntries && TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) && MQLInfoInteger(MQL_TRADE_ALLOWED)),Bool(State("halt")!=0),Bool(State("blocked")!=0),Bool(State("recovery")!=0),Bool(history),remaining,change,positions,deals,events);
+ string body=StringFormat("{\"demo\":true,\"account\":\"%I64d\",\"server\":\"%s\",\"version\":\"1.101\",\"broker_time\":%I64d,\"connected\":%s,\"enabled\":%s,\"halted\":%s,\"daily_blocked\":%s,\"recovering\":%s,\"history_ok\":%s,\"daily_remaining\":%.8f,\"day_equity_change\":%.8f,\"positions\":%s,\"deals\":%s,\"events\":%s}",DemoLogin,Escape(DemoServer),(long)TimeCurrent(),Bool(TerminalInfoInteger(TERMINAL_CONNECTED)),Bool(EnableEntries && TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) && MQLInfoInteger(MQL_TRADE_ALLOWED)),Bool(State("halt")!=0),Bool(State("blocked")!=0),Bool(State("recovery")!=0),Bool(history),remaining,change,positions,deals,events);
  char data[],reply[];int size=StringToCharArray(body,data,0,WHOLE_ARRAY,CP_UTF8);if(size<=0) return;ArrayResize(data,size-1);string headers;
  int status=WebRequest("POST",BridgeURL+"/api/bridge/execution","Content-Type: application/json\r\nAuthorization: Bearer "+BridgeToken+"\r\n",1500,data,reply,headers);
  if(status==200) {ArrayResize(eventQueue,0);StoreEvents();}
