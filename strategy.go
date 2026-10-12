@@ -121,6 +121,8 @@ func nearestSwing(bars []Candle, low bool) float64 {
 
 // Nearest two distinct confirmed swing prices beyond entry, not the newest
 // two swings. Closed three-bar pivots only; limit history to the bridge's 200.
+const minTargetDistance = 5.0
+
 func structuralTargets(bars []Candle, entry float64, buy bool) (float64, float64, bool) {
 	if len(bars) > 200 {
 		bars = bars[len(bars)-200:]
@@ -132,12 +134,12 @@ func structuralTargets(bars []Candle, entry float64, buy bool) (float64, float64
 		}
 		price := bars[i].High
 		if buy {
-			if price <= bars[i-1].High || price <= bars[i+1].High || price <= entry {
+			if price <= bars[i-1].High || price <= bars[i+1].High || price-entry < minTargetDistance-1e-8 {
 				continue
 			}
 		} else {
 			price = bars[i].Low
-			if price >= bars[i-1].Low || price >= bars[i+1].Low || price >= entry {
+			if price >= bars[i-1].Low || price >= bars[i+1].Low || entry-price < minTargetDistance-1e-8 {
 				continue
 			}
 		}

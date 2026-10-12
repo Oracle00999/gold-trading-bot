@@ -52,7 +52,7 @@ func TestTickInsufficientMargin(t *testing.T) {
 	e := tickFixture()
 	e.positions = nil
 	e.cfg.MarginPerLot = 10000
-	e.pending = &Signal{TP1: 4105, TP2: 4110, Side: "BUY", Stop: 4090, CandleTime: 0}
+	e.pending = &Signal{TP1: 4105.2, TP2: 4110, Side: "BUY", Stop: 4090, CandleTime: 0}
 	e.step(Tick{1000, 4100, 4100.2})
 	if len(e.positions) != 0 || e.r.Rejected != 1 {
 		t.Fatal(e.r)
@@ -78,7 +78,7 @@ func TestTickInitialPartialBarDiscarded(t *testing.T) {
 func TestFixedLotsAndRiskGate(t *testing.T) {
 	for _, stop := range []float64{4099, 4090} {
 		e := newTickEngine(TickConfig{Lots: .06, MaxPairRisk: 20, DailyLossLimit: 100, MinRewardRisk: 1, Balance: 1000, Contract: 100, MarginPerLot: 100, MaxGap: 60000})
-		e.pending = &Signal{TP1: 4105, TP2: 4110, Side: "BUY", Stop: stop}
+		e.pending = &Signal{TP1: 4105.2, TP2: 4110, Side: "BUY", Stop: stop}
 		e.step(Tick{1000, 4100, 4100.2})
 		if stop == 4090 {
 			if e.r.RiskRejected != 1 || len(e.positions) != 0 {
@@ -90,7 +90,7 @@ func TestFixedLotsAndRiskGate(t *testing.T) {
 			t.Fatal(e.positions)
 		}
 		e.step(Tick{2000, 4111, 4111.2})
-		if math.Abs(e.r.Balance-1087.6) > 1e-8 {
+		if math.Abs(e.r.Balance-1088.8) > 1e-8 {
 			t.Fatal(e.r.Balance)
 		}
 	}
@@ -101,13 +101,13 @@ func TestDailyGateLatchesAndResets(t *testing.T) {
 	e.r.Balance = 899
 	e.step(Tick{2000, 4100, 4100.2})
 	e.r.Balance = 1000 // Recovery must not reopen the gate on the same day.
-	e.pending = &Signal{TP1: 4105, TP2: 4110, Side: "BUY", Stop: 4099}
+	e.pending = &Signal{TP1: 4105.2, TP2: 4110, Side: "BUY", Stop: 4099}
 	e.step(Tick{3000, 4100, 4100.2})
 	if e.r.DailyRejected != 1 || len(e.positions) != 0 {
 		t.Fatal(e.r)
 	}
 	e.step(Tick{86401000, 4100, 4100.2})
-	e.pending = &Signal{TP1: 4105, TP2: 4110, Side: "BUY", Stop: 4099, CandleTime: 86400}
+	e.pending = &Signal{TP1: 4105.2, TP2: 4110, Side: "BUY", Stop: 4099, CandleTime: 86400}
 	e.step(Tick{86402000, 4100, 4100.2})
 	if len(e.positions) != 2 {
 		t.Fatal("daily gate failed to reset")
@@ -117,16 +117,37 @@ func TestRemainingDailyBudgetAndRewardGate(t *testing.T) {
 	e := newTickEngine(TickConfig{Lots: .06, DailyLossLimit: 100, Balance: 1000, Contract: 100, MarginPerLot: 100, MaxGap: 60000})
 	e.step(Tick{1000, 4100, 4100.2})
 	e.r.Balance = 905
-	e.pending = &Signal{TP1: 4105, TP2: 4110, Side: "BUY", Stop: 4099}
+	e.pending = &Signal{TP1: 4105.2, TP2: 4110, Side: "BUY", Stop: 4099}
 	e.step(Tick{2000, 4100, 4100.2})
 	if e.r.DailyRejected != 1 {
 		t.Fatal("remaining budget not reserved")
 	}
 	e.cfg.DailyLossLimit = 0
 	e.cfg.MinRewardRisk = 1
-	e.pending = &Signal{TP1: 4105, TP2: 4110, Side: "BUY", Stop: 4090}
+	e.pending = &Signal{TP1: 4105.2, TP2: 4110, Side: "BUY", Stop: 4090}
 	e.step(Tick{3000, 4100, 4100.2})
 	if e.r.RewardRejected != 1 {
 		t.Fatal("poor reward accepted")
+	}
+}
+
+func TestMinimumTargetAtExecutableEntry(t *testing.T) {
+	for _, buy := range []bool{true, false} {
+		for _, distance := range []float64{4.999, 5.0} {
+			e := newTickEngine(TickConfig{Lots: .06, Balance: 1000, Contract: 100, MarginPerLot: 100, MaxGap: 60000})
+			side, d, entry := "BUY", 1.0, 4100.2
+			if !buy {
+				side, d, entry = "SELL", -1, 4100
+			}
+			e.pending = &Signal{Side: side, Stop: entry - d*2, TP1: entry + d*distance, TP2: entry + d*8}
+			e.step(Tick{1000, 4100, 4100.2})
+			want := 0
+			if distance == 5 {
+				want = 2
+			}
+			if len(e.positions) != want {
+				t.Fatal(buy, distance, len(e.positions))
+			}
+		}
 	}
 }

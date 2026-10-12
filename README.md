@@ -143,3 +143,9 @@ docker compose --env-file .local/postgres.env exec -T postgres pg_dump -U fx_tra
 Rename backups to preserve previous versions. `docker compose stop` preserves the
 volume; `down -v` deletes it. Volumes are not backups. Restore and reboot testing
 are part of deployment. Stop the old executor before enabling one on a VPS.
+
+TP1 must be at least 5.0 gold price units (50 pips by this project’s convention)
+from the reference entry. Select the nearest eligible confirmed swing, then the
+next farther distinct swing for TP2. Skip if two eligible levels are unavailable.
+Replay checks the simulated fill; the executor checks the current quote and actual
+fill. A fill violating the minimum invokes incomplete-pair recovery.

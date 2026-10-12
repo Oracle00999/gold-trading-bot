@@ -97,7 +97,7 @@ func TestStructuralTargets(t *testing.T) {
 		t.Fatal(a, b, ok)
 	}
 	a, b, ok = structuralTargets(bars, 89, false)
-	if !ok || a != 88 || b != 82 {
+	if !ok || a != 82 || b != 75 {
 		t.Fatal(a, b, ok)
 	}
 	// The final candle cannot confirm itself as a pivot.
@@ -117,5 +117,32 @@ func TestStructuralTargetsRequireTwoLevels(t *testing.T) {
 	b := targetHistory(CandleBatch{Candles: []Candle{}})
 	if _, _, ok := structuralTargets(b.Candles, 4110, true); ok {
 		t.Fatal("one target accepted")
+	}
+}
+
+func TestTargetMinimumDistance(t *testing.T) {
+	for _, buy := range []bool{true, false} {
+		bars := make([]Candle, 9)
+		for i := range bars {
+			bars[i] = Candle{Time: int64(i * 180), High: 4100, Low: 4100}
+		}
+		for i, distance := range []float64{0.233, 4.999, 5, 7} {
+			if buy {
+				bars[2*i+1].High = 4100 + distance
+			} else {
+				bars[2*i+1].Low = 4100 - distance
+			}
+		}
+		a, b, ok := structuralTargets(bars, 4100, buy)
+		d := 1.0
+		if !buy {
+			d = -1
+		}
+		if !ok || a != 4100+d*5 || b != 4100+d*7 {
+			t.Fatal(buy, a, b, ok)
+		}
+		if _, _, ok = structuralTargets(bars, 4100+d*0.1, buy); ok {
+			t.Fatal("accepted only one eligible target")
+		}
 	}
 }

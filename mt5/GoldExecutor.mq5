@@ -1,5 +1,5 @@
 #property strict
-#property version "1.101"
+#property version "1.102"
 #property description "Demo-only executor for Go M3 signals. Attach once per demo account."
 #include <Trade/Trade.mqh>
 #include "ExecutionPolicy.mqh"
@@ -12,6 +12,7 @@ input bool EnableEntries=false;
 input double CommissionPerLot=0; // Estimated round-trip USD/lot.
 input double SlippageAllowance=0.05; // Price units, included in risk estimate.
 const string TradeSymbol="XAUUSDm";
+const double MinTargetDistance=5.0;
 const double Lots=0.06, PairRisk=200, DailyLoss=1000;
 const ulong Magic1=2601001, Magic2=2601002;
 CTrade trade;
@@ -50,7 +51,7 @@ int OnInit() {
  trade.SetDeviationInPoints((ulong)MathCeil(SlippageAllowance/SymbolInfoDouble(TradeSymbol,SYMBOL_POINT)));
  LoadEvents();
  if(!EventSetTimer(1)) return INIT_FAILED;
- Record("started","Executor 1.101 loaded; reconciling broker positions and persistent state.");
+ Record("started","Executor 1.102 loaded; reconciling broker positions and persistent state.");
  Print("Demo executor ready. New entries: ",EnableEntries,"; lots 2 x 0.06; pair risk $200; daily gate $1000.");
  return INIT_SUCCEEDED;
 }
@@ -107,6 +108,7 @@ bool Estimate(ENUM_ORDER_TYPE side,double stop,double &risk,double &entry) {
  entry=buy?q.ask:q.bid;
  double d=buy?1:-1;
  if((intentTP1-entry)*d<=0 || (intentTP2-intentTP1)*d<=0) return Reject(StringFormat("Entry %.3f has reached TP1 %.3f, or targets are unordered (TP2 %.3f)",entry,intentTP1,intentTP2));
+ if((intentTP1-entry)*d<MinTargetDistance-0.00000001) return Reject(StringFormat("TP1 distance %.3f below minimum %.3f",(intentTP1-entry)*d,MinTargetDistance));
  double point=SymbolInfoDouble(TradeSymbol,SYMBOL_POINT), step=SymbolInfoDouble(TradeSymbol,SYMBOL_VOLUME_STEP);
  if(step<=0 || Lots<SymbolInfoDouble(TradeSymbol,SYMBOL_VOLUME_MIN) || Lots>SymbolInfoDouble(TradeSymbol,SYMBOL_VOLUME_MAX) || MathAbs(Lots/step-MathRound(Lots/step))>0.000001) return Reject(StringFormat("Lots %.2f incompatible with broker volume rules; step %.3f",Lots,step));
  double distance=SymbolInfoInteger(TradeSymbol,SYMBOL_TRADE_STOPS_LEVEL)*point;
@@ -143,6 +145,7 @@ bool OpenLeg(ENUM_ORDER_TYPE side,double stop,int leg,ulong &pid,ulong &ticket) 
   ticket=PositionGetTicket(i);
   if((ulong)PositionGetInteger(POSITION_IDENTIFIER)!=pid) continue;
   if(MathAbs(PositionGetDouble(POSITION_VOLUME)-Lots)>0.00000001 || PositionGetDouble(POSITION_SL)<=0 || PositionGetDouble(POSITION_TP)<=0) return false;
+  if((intentTP1-PositionGetDouble(POSITION_PRICE_OPEN))*d<MinTargetDistance-0.00000001) { Record("entry_rejected","Fill left TP1 less than 5.0 away; reconcile incomplete pair"); return false; }
   // Preserve absolute structural targets; never shift them with the fill.
 
   if(!EnsureProtection(ticket,stop,target)) return false;
@@ -258,8 +261,8 @@ bool LocalTargets(MqlRates &bars[],int count,double entry,ENUM_ORDER_TYPE side) 
  for(int i=1;i<count-1;i++) {
   if(bars[i].time-bars[i-1].time!=180 || bars[i+1].time-bars[i].time!=180) continue;
   double price=buy?bars[i].high:bars[i].low;
-  if(buy) { if(price<=entry || price<=bars[i-1].high || price<=bars[i+1].high) continue; }
-  else { if(price>=entry || price>=bars[i-1].low || price>=bars[i+1].low) continue; }
+  if(buy) { if(price-entry<MinTargetDistance-0.00000001 || price<=bars[i-1].high || price<=bars[i+1].high) continue; }
+  else { if(entry-price<MinTargetDistance-0.00000001 || price>=bars[i-1].low || price>=bars[i+1].low) continue; }
   if(price==first || price==second) continue;
   if(first==0 || (buy && price<first) || (!buy && price>first)) {second=first;first=price;}
   else if(second==0 || (buy && price<second) || (!buy && price>second)) second=price;
@@ -369,7 +372,7 @@ void Publish() {
  deals+="]";
  string events="[";for(int i=0;i<ArraySize(eventQueue);i++) {if(i>0) events+=",";events+=eventQueue[i];}events+="]";
  double change=AccountInfoDouble(ACCOUNT_EQUITY)-State("baseline"),remaining=State("blocked")!=0?0:MathMax(0,DailyLoss-MathMax(0,-change));
- string body=StringFormat("{\"demo\":true,\"account\":\"%I64d\",\"server\":\"%s\",\"version\":\"1.101\",\"broker_time\":%I64d,\"connected\":%s,\"enabled\":%s,\"halted\":%s,\"daily_blocked\":%s,\"recovering\":%s,\"history_ok\":%s,\"daily_remaining\":%.8f,\"day_equity_change\":%.8f,\"positions\":%s,\"deals\":%s,\"events\":%s}",DemoLogin,Escape(DemoServer),(long)TimeCurrent(),Bool(TerminalInfoInteger(TERMINAL_CONNECTED)),Bool(EnableEntries && TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) && MQLInfoInteger(MQL_TRADE_ALLOWED)),Bool(State("halt")!=0),Bool(State("blocked")!=0),Bool(State("recovery")!=0),Bool(history),remaining,change,positions,deals,events);
+ string body=StringFormat("{\"demo\":true,\"account\":\"%I64d\",\"server\":\"%s\",\"version\":\"1.102\",\"broker_time\":%I64d,\"connected\":%s,\"enabled\":%s,\"halted\":%s,\"daily_blocked\":%s,\"recovering\":%s,\"history_ok\":%s,\"daily_remaining\":%.8f,\"day_equity_change\":%.8f,\"positions\":%s,\"deals\":%s,\"events\":%s}",DemoLogin,Escape(DemoServer),(long)TimeCurrent(),Bool(TerminalInfoInteger(TERMINAL_CONNECTED)),Bool(EnableEntries && TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) && MQLInfoInteger(MQL_TRADE_ALLOWED)),Bool(State("halt")!=0),Bool(State("blocked")!=0),Bool(State("recovery")!=0),Bool(history),remaining,change,positions,deals,events);
  char data[],reply[];int size=StringToCharArray(body,data,0,WHOLE_ARRAY,CP_UTF8);if(size<=0) return;ArrayResize(data,size-1);string headers;
  int status=WebRequest("POST",BridgeURL+"/api/bridge/execution","Content-Type: application/json\r\nAuthorization: Bearer "+BridgeToken+"\r\n",1500,data,reply,headers);
  if(status==200) {ArrayResize(eventQueue,0);StoreEvents();}

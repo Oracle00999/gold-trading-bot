@@ -149,7 +149,7 @@ func backtest(bars []Candle, cfg StrategyConfig, cost BacktestCosts) BacktestRep
 		} else {
 			entry -= cost.Slippage
 		}
-		if (s.Side == "BUY" && (entry <= s.Stop || entry >= s.TP1)) || (s.Side == "SELL" && (entry >= s.Stop || entry <= s.TP1)) {
+		if (s.Side == "BUY" && (entry <= s.Stop || s.TP1-entry < minTargetDistance-1e-8)) || (s.Side == "SELL" && (entry >= s.Stop || entry-s.TP1 < minTargetDistance-1e-8)) {
 			continue
 		}
 		tr, used := simulateTrade(s, bars[i+1:], cost)

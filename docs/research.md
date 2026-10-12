@@ -40,3 +40,9 @@ Replay uses bid/ask quotes, delayed entries and break-even modifications. It sti
 uses assumed slippage, fees, margin, and stop-out behavior. Day boundaries follow
 raw export timestamps, not a verified Lagos conversion. Neither replay engine
 reproduces all broker failures. Keep raw exports and generated reports in `.local`.
+
+TP1 must be at least 5.0 gold price units (50 pips by this project’s convention)
+from the reference entry. Select the nearest eligible confirmed swing, then the
+next farther distinct swing for TP2. Skip if two eligible levels are unavailable.
+Replay checks the simulated fill; the executor checks the current quote and actual
+fill. A fill violating the minimum invokes incomplete-pair recovery.
