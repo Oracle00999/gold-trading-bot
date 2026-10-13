@@ -66,7 +66,8 @@ restarting Go does not reload MT5. MT5 and Go must remain running and connected.
 Analysis uses closed M3 candles only. A breakout requires a close beyond the
 highest high or lowest low of the preceding window, excluding the signal candle.
 `BREAKOUT_LOOKBACK` accepts 10 or 20 (default 20). `BREAKOUT_STOP_BUFFER` defaults to
-0.10 price units and must be positive.
+2.10 price units (the original 0.10 plus an extra 2.00) and must be positive.
+This applies to new signals; existing positions are not widened.
 
 The stop uses the most recent confirmed three-candle swing low for buys or swing
 high for sells, plus an outward buffer. Targets are the nearest two distinct
@@ -80,7 +81,10 @@ Targets may be close together because prices are distinct, not grouped into zone
   completed pair. Broker-day equity includes manual activity and cash movements.
 - No minimum reward/risk filter: estimated loss may exceed target profit.
 - After the full TP1 position closes by broker take-profit, TP2's stop moves to its
-  actual entry. This does not guarantee net break-even after fees or slippage.
+  actual entry plus $2 for buys or minus $2 for sells (gold price units).
+  If broker stop/freeze distance prevents modification, the existing stop stays
+  in place and the executor retries. Fees and slippage still affect net profit.
+  Historical replay models still use entry-price break-even.
 
 The executor independently validates data, quote freshness, broker limits, margin,
 and configured cost estimates. It waits for a new M3 bar after attachment and never

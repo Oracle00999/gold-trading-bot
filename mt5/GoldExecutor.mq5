@@ -1,5 +1,5 @@
 #property strict
-#property version "1.103"
+#property version "1.104"
 #property description "Demo-only executor for Go M3 signals. Attach once per demo account."
 #include <Trade/Trade.mqh>
 #include "ExecutionPolicy.mqh"
@@ -51,7 +51,7 @@ int OnInit() {
  trade.SetDeviationInPoints((ulong)MathCeil(SlippageAllowance/SymbolInfoDouble(TradeSymbol,SYMBOL_POINT)));
  LoadEvents();
  if(!EventSetTimer(1)) return INIT_FAILED;
- Record("started","Executor 1.103 loaded; reconciling broker positions and persistent state.");
+ Record("started","Executor 1.104 loaded; reconciling broker positions and persistent state.");
  Print("Demo executor ready. New entries: ",EnableEntries,"; lots 2 x 0.06; pair risk $200; daily gate $1000.");
  return INIT_SUCCEEDED;
 }
@@ -87,13 +87,16 @@ void ManagePositions() {
     (ulong)PositionGetInteger(POSITION_IDENTIFIER)!=(ulong)State("pid2")) continue;
   double entry=PositionGetDouble(POSITION_PRICE_OPEN), sl=PositionGetDouble(POSITION_SL), tp=PositionGetDouble(POSITION_TP);
   bool buy=PositionGetInteger(POSITION_TYPE)==POSITION_TYPE_BUY;
-  if((buy && sl>=entry) || (!buy && sl>0 && sl<=entry)) continue;
+  double ticksize=SymbolInfoDouble(TradeSymbol,SYMBOL_TRADE_TICK_SIZE);
+  if(ticksize<=0) return;
+  double lockedStop=NormalizeDouble(MathRound(ProfitLockStop(entry,buy)/ticksize)*ticksize,(int)SymbolInfoInteger(TradeSymbol,SYMBOL_DIGITS));
+  if((buy && sl>=lockedStop) || (!buy && sl>0 && sl<=lockedStop)) continue;
   MqlTick q; if(!SymbolInfoTick(TradeSymbol,q)) return;
   double distance=MathMax(SymbolInfoInteger(TradeSymbol,SYMBOL_TRADE_STOPS_LEVEL),SymbolInfoInteger(TradeSymbol,SYMBOL_TRADE_FREEZE_LEVEL))*SymbolInfoDouble(TradeSymbol,SYMBOL_POINT);
-  if((buy ? q.bid-entry : entry-q.ask)<=distance) return;
-  if(!EnsureProtection(ticket,entry,tp))
+  if((buy ? q.bid-lockedStop : lockedStop-q.ask)<=distance) return;
+  if(!EnsureProtection(ticket,lockedStop,tp))
    Record("breakeven_pending",trade.ResultRetcodeDescription());
-  else Record("breakeven_done","TP2 stop verified at actual entry.");
+  else Record("breakeven_done","TP2 stop verified $2 in price beyond actual entry into profit.");
  }
 }
 
@@ -373,7 +376,7 @@ void Publish() {
  deals+="]";
  string events="[";for(int i=0;i<ArraySize(eventQueue);i++) {if(i>0) events+=",";events+=eventQueue[i];}events+="]";
  double change=AccountInfoDouble(ACCOUNT_EQUITY)-State("baseline"),remaining=State("blocked")!=0?0:MathMax(0,DailyLoss-MathMax(0,-change));
- string body=StringFormat("{\"demo\":true,\"account\":\"%I64d\",\"server\":\"%s\",\"version\":\"1.103\",\"broker_time\":%I64d,\"connected\":%s,\"enabled\":%s,\"halted\":%s,\"daily_blocked\":%s,\"recovering\":%s,\"history_ok\":%s,\"daily_remaining\":%.8f,\"day_equity_change\":%.8f,\"positions\":%s,\"deals\":%s,\"events\":%s}",DemoLogin,Escape(DemoServer),(long)TimeCurrent(),Bool(TerminalInfoInteger(TERMINAL_CONNECTED)),Bool(EnableEntries && TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) && MQLInfoInteger(MQL_TRADE_ALLOWED)),Bool(State("halt")!=0),Bool(State("blocked")!=0),Bool(State("recovery")!=0),Bool(history),remaining,change,positions,deals,events);
+ string body=StringFormat("{\"demo\":true,\"account\":\"%I64d\",\"server\":\"%s\",\"version\":\"1.104\",\"broker_time\":%I64d,\"connected\":%s,\"enabled\":%s,\"halted\":%s,\"daily_blocked\":%s,\"recovering\":%s,\"history_ok\":%s,\"daily_remaining\":%.8f,\"day_equity_change\":%.8f,\"positions\":%s,\"deals\":%s,\"events\":%s}",DemoLogin,Escape(DemoServer),(long)TimeCurrent(),Bool(TerminalInfoInteger(TERMINAL_CONNECTED)),Bool(EnableEntries && TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) && MQLInfoInteger(MQL_TRADE_ALLOWED)),Bool(State("halt")!=0),Bool(State("blocked")!=0),Bool(State("recovery")!=0),Bool(history),remaining,change,positions,deals,events);
  char data[],reply[];int size=StringToCharArray(body,data,0,WHOLE_ARRAY,CP_UTF8);if(size<=0) return;ArrayResize(data,size-1);string headers;
  int status=WebRequest("POST",BridgeURL+"/api/bridge/execution","Content-Type: application/json\r\nAuthorization: Bearer "+BridgeToken+"\r\n",1500,data,reply,headers);
  if(status==200) {ArrayResize(eventQueue,0);StoreEvents();}

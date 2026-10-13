@@ -16,7 +16,7 @@ type StrategyConfig struct {
 }
 
 func strategyConfig() (StrategyConfig, error) {
-	c := StrategyConfig{Lookback: 20, StopBuffer: 0.1}
+	c := StrategyConfig{Lookback: 20, StopBuffer: 2.1}
 	var err error
 	if v := os.Getenv("BREAKOUT_LOOKBACK"); v != "" {
 		c.Lookback, err = strconv.Atoi(v)

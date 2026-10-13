@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
 
 func TestBreakout(t *testing.T) {
 	makeBatch := func() CandleBatch {
@@ -147,6 +150,46 @@ func TestTargetMinimumDistance(t *testing.T) {
 		}
 		if _, _, ok = structuralTargets(bars, 4100+d*3, buy); ok {
 			t.Fatal("accepted no eligible target")
+		}
+	}
+}
+
+func TestWiderDefaultStop(t *testing.T) {
+	t.Setenv("BREAKOUT_STOP_BUFFER", "")
+	t.Setenv("BREAKOUT_LOOKBACK", "10")
+	cfg, err := strategyConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, buy := range []bool{true, false} {
+		b := CandleBatch{Demo: true, Symbol: "XAUUSDm", Timeframe: "M3", CurrentBarTime: 2160}
+		for i := 1; i <= 11; i++ {
+			b.Candles = append(b.Candles, Candle{Time: int64(i * 180), Open: 4100, High: 4102, Low: 4098, Close: 4100})
+		}
+		b.Candles[8].Low = 4097
+		b.Candles[8].High = 4102.5
+		if buy {
+			b.Candles[10].Close = 4103
+			b.Candles[10].High = 4104
+		} else {
+			b.Candles[10].Close = 4096
+			b.Candles[10].Low = 4095
+		}
+		old, _ := breakout(targetHistory(b), StrategyConfig{10, .1})
+		widened, _ := breakout(targetHistory(b), cfg)
+		if old == nil || widened == nil {
+			t.Fatal("expected signal")
+		}
+		delta := widened.Stop - old.Stop
+		want := 2.0
+		if buy {
+			want = -2
+		}
+		if math.Abs(delta-want) > 1e-8 {
+			t.Fatalf("buy=%v stop change %v, want %v", buy, delta, want)
+		}
+		if widened.TP1 != old.TP1 || widened.TP2 != old.TP2 {
+			t.Fatal("targets changed")
 		}
 	}
 }

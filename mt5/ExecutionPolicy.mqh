@@ -10,3 +10,6 @@ int RecoveryDecision(bool incomplete,bool connected,bool historyReady,bool match
  if(pending) return RECOVERY_WAIT;
  return RECOVERY_REVIEW; // Never infer that an uncertain order was rejected.
 }
+
+// Price units, not account-currency profit.
+double ProfitLockStop(double entry,bool buy) { return entry+(buy?2.0:-2.0); }

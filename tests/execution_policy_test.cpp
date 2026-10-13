@@ -1,6 +1,8 @@
 #include <cassert>
 #include "../mt5/ExecutionPolicy.mqh"
 int main() {
+ assert(ProfitLockStop(4100,false)==4098);
+ assert(ProfitLockStop(4100,true)==4102);
  assert(RecoveryDecision(false,true,true,true,false,true)==RECOVERY_NONE); // completed pair survives restart
  assert(RecoveryDecision(true,true,true,true,false,true)==RECOVERY_CLOSE); // confirmed orphan
  assert(RecoveryDecision(true,false,true,true,false,true)==RECOVERY_WAIT); // disconnected

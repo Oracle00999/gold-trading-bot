@@ -41,7 +41,7 @@ func TestExecutionIntent(t *testing.T) {
 		t.Fatal(w.Body.String())
 	}
 	w := call("GET", "/api/bridge/intent", "", "secret")
-	if w.Code != 200 || w.Body.String() != "2880,BUY,4096.90000000,10,0.10000000,4108.00000000,4113.00000000" {
+	if w.Code != 200 || w.Body.String() != "2880,BUY,4094.90000000,10,2.10000000,4108.00000000,4113.00000000" {
 		t.Fatal(w.Code, w.Body.String())
 	}
 	b.Candles[15].Close = 4100
