@@ -92,3 +92,19 @@ func TestDashboardReadOnlySession(t *testing.T) {
 		t.Fatal("unexpected host allowed")
 	}
 }
+
+func TestPrivateDashboardHost(t *testing.T) {
+	for _, host := range []string{"localhost:8080", "127.0.0.1:8080", "bot.example.ts.net", "bot.example.ts.net:443"} {
+		if !dashboardHostAllowed(host, "bot.example.ts.net") {
+			t.Fatal(host)
+		}
+	}
+	for _, host := range []string{"evil.example", "bot.example.ts.net.evil", "bot.example.ts.net:8080", ""} {
+		if dashboardHostAllowed(host, "bot.example.ts.net") {
+			t.Fatal(host)
+		}
+	}
+	if dashboardHostAllowed("bot.example.ts.net", "") {
+		t.Fatal("private access enabled without configuration")
+	}
+}

@@ -37,6 +37,11 @@ type Snapshot struct {
 	TickTimeMS int64   `json:"tick_time_ms"`
 }
 
+func dashboardHostAllowed(host, privateHost string) bool {
+	return host == "127.0.0.1:8080" || host == "localhost:8080" || host == "127.0.0.1" || host == "localhost" ||
+		(privateHost != "" && (host == privateHost || host == privateHost+":443"))
+}
+
 func router(token string, databases ...*candleDatabase) *gin.Engine {
 	var db *candleDatabase
 	if len(databases) > 0 {
@@ -44,9 +49,11 @@ func router(token string, databases ...*candleDatabase) *gin.Engine {
 	}
 	r := gin.New()
 	r.Use(gin.Recovery())
-	// Restrict browser access to the intended loopback host (including DNS rebinding).
+	// Allow loopback and one explicitly configured private HTTPS hostname.
+	privateHostBytes, _ := os.ReadFile(".local/dashboard-host")
+	privateHost := strings.TrimSpace(string(privateHostBytes))
 	r.Use(func(c *gin.Context) {
-		if c.Request.Host != "127.0.0.1:8080" && c.Request.Host != "localhost:8080" && c.Request.Host != "127.0.0.1" && c.Request.Host != "localhost" {
+		if !dashboardHostAllowed(c.Request.Host, privateHost) {
 			c.AbortWithStatus(403)
 			return
 		}
