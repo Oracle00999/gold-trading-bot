@@ -207,3 +207,20 @@ func TestResumeRequiresFreshSignal(t *testing.T) {
 		t.Fatal("disabled pair allowed")
 	}
 }
+
+func TestExecutionShowsDashboardPermission(t *testing.T) {
+	now := time.Now()
+	s := &ExecutionSnapshot{Version: "1.105", Connected: true, Enabled: true, HistoryOK: true}
+	if got := executionState(s, now, now); got != "control_unavailable" {
+		t.Fatal(got)
+	}
+	s.ControlOK = true
+	s.ControlRevision = 1
+	if got := executionState(s, now, now); got != "dashboard_paused" {
+		t.Fatal(got)
+	}
+	s.ControlEnabled = true
+	if got := executionState(s, now, now); got != "ready" {
+		t.Fatal(got)
+	}
+}

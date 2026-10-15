@@ -112,6 +112,14 @@ func executionState(s *ExecutionSnapshot, received, timeNow time.Time) string {
 	if !s.Enabled {
 		return "entries_disabled"
 	}
+	if s.Version == "1.105" || s.ControlRevision > 0 {
+		if !s.ControlOK {
+			return "control_unavailable"
+		}
+		if !s.ControlEnabled {
+			return "dashboard_paused"
+		}
+	}
 	if !s.HistoryOK {
 		return "history_unavailable"
 	}
