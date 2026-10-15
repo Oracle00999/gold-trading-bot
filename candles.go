@@ -28,8 +28,8 @@ type CandleBatch struct {
 }
 
 func (b CandleBatch) validate() error {
-	if !b.Demo || b.Symbol != "XAUUSDm" {
-		return fmt.Errorf("demo XAUUSDm only")
+	if !b.Demo || !supportedSymbol(b.Symbol) {
+		return fmt.Errorf("supported demo symbols only")
 	}
 	seconds := map[string]int64{"M3": 180, "M5": 300, "M15": 900, "H1": 3600}[b.Timeframe]
 	if seconds == 0 || b.CurrentBarTime <= 0 || len(b.Candles) == 0 || len(b.Candles) > 200 {
@@ -57,9 +57,10 @@ type storedCandles struct {
 	Restored   bool      `json:"restored"`
 }
 
-func candleRoutes(api *gin.RouterGroup, db *candleDatabase) {
+func candleRoutes(api *gin.RouterGroup, db *candleDatabase, symbols ...string) {
+	symbol := selectedSymbol(symbols)
 	pin, _ := loadExecutionPin()
-	cfg, err := strategyConfig()
+	cfg, err := strategyConfig(symbol)
 	if err != nil {
 		panic(err)
 	}
@@ -71,7 +72,7 @@ func candleRoutes(api *gin.RouterGroup, db *candleDatabase) {
 	batches := map[string]storedCandles{}
 	if db != nil {
 		var err error
-		batches, err = db.load()
+		batches, err = db.load(symbol)
 		if err != nil {
 			panic(err)
 		}
@@ -87,6 +88,10 @@ func candleRoutes(api *gin.RouterGroup, db *candleDatabase) {
 		}
 		if d.Decode(new(any)) != io.EOF {
 			c.JSON(400, gin.H{"error": "expected one object"})
+			return
+		}
+		if b.Symbol != symbol {
+			c.AbortWithStatus(400)
 			return
 		}
 		if err := b.validate(); err != nil {
@@ -131,7 +136,7 @@ func candleRoutes(api *gin.RouterGroup, db *candleDatabase) {
 		defer mu.RUnlock()
 		c.Header("Cache-Control", "no-store")
 		if db != nil {
-			control, err := db.tradingControl(c.Request.Context())
+			control, err := db.tradingControl(c.Request.Context(), symbol)
 			if err != nil {
 				c.Status(503)
 				return

@@ -123,6 +123,9 @@ func TestControlPostgres(t *testing.T) {
 	if _, err = pool.Exec(ctx, controlMigration); err != nil {
 		t.Fatal(err)
 	}
+	if _, err = pool.Exec(ctx, euroMigration); err != nil {
+		t.Fatal(err)
+	}
 	initial, err := db.tradingControl(ctx)
 	if err != nil || initial.Enabled || initial.Revision != 1 {
 		t.Fatal(initial, err)
@@ -186,6 +189,30 @@ func TestControlPostgres(t *testing.T) {
 	var count int
 	if err = pool.QueryRow(ctx, "SELECT count(*) FROM trading_control_audit").Scan(&count); err != nil || count != 2 {
 		t.Fatal("missing audit", count, err)
+	}
+	euro, err := other.tradingControl(ctx, euroSymbol)
+	if err != nil || euro.Enabled || euro.Revision != 1 {
+		t.Fatal("EUR defaults not isolated", euro, err)
+	}
+	if err = other.changeControl(ctx, true, 1, "owner@example.com", euroSymbol); err != nil {
+		t.Fatal(err)
+	}
+	// Identical event IDs across symbols must not erase either event.
+	for _, symbol := range []string{goldSymbol, euroSymbol} {
+		snapshot := ExecutionSnapshot{Symbol: symbol, Account: "isolation", Server: "demo", BrokerTime: 1, Events: []ExecutionEvent{{ID: "shared", Time: 1, Code: symbol}}}
+		if err = other.saveExecution(ctx, snapshot, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, symbol := range []string{goldSymbol, euroSymbol} {
+		var view executionView
+		if err = other.executionHistory(ctx, &view, executionPin{Account: "isolation", Server: "demo"}, symbol); err != nil || len(view.Events) != 1 || view.Events[0].Code != symbol {
+			t.Fatal("history crossed symbols", view, err)
+		}
+	}
+	var snapshots int
+	if err = pool.QueryRow(ctx, "SELECT count(*) FROM execution_snapshots WHERE account='isolation'").Scan(&snapshots); err != nil || snapshots != 2 {
+		t.Fatal("snapshot overwritten", snapshots, err)
 	}
 	saved, err = other.tradingControl(ctx)
 	if err != nil || saved.Enabled || saved.Revision != 3 {

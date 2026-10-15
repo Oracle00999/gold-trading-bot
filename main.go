@@ -76,15 +76,12 @@ func router(token string, databases ...*candleDatabase) *gin.Engine {
 		c.Data(200, "text/html; charset=utf-8", dashboard)
 	})
 	_ = r.SetTrustedProxies(nil)
-	var mu sync.RWMutex
-	var latest *Snapshot
-	var received time.Time
-	var tickChanged time.Time
 	r.GET("/healthz", func(c *gin.Context) { c.JSON(200, gin.H{"status": "ok"}) })
 	api := r.Group("/api")
 	api.Use(func(c *gin.Context) {
 		cookie, _ := c.Cookie("dashboard")
-		if c.Request.Method == http.MethodGet && (c.Request.URL.Path == "/api/status" || c.Request.URL.Path == "/api/candles" || c.Request.URL.Path == "/api/strategy" || c.Request.URL.Path == "/api/execution") && subtle.ConstantTimeCompare([]byte(cookie), []byte(readToken)) == 1 {
+		readPath := strings.Replace(c.Request.URL.Path, "/api/pairs/EURUSDm/", "/api/", 1)
+		if c.Request.Method == http.MethodGet && (readPath == "/api/status" || readPath == "/api/candles" || readPath == "/api/strategy" || readPath == "/api/execution") && subtle.ConstantTimeCompare([]byte(cookie), []byte(readToken)) == 1 {
 			c.Next()
 			return
 		}
@@ -98,51 +95,13 @@ func router(token string, databases ...*candleDatabase) *gin.Engine {
 	controlRoutes(r, api, db, controlAuth)
 	candleRoutes(api, db)
 	executionRoutes(api, db)
-	api.POST("/bridge/snapshot", func(c *gin.Context) {
-		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 4096)
-		decoder := json.NewDecoder(c.Request.Body)
-		decoder.DisallowUnknownFields()
-		var s Snapshot
-		if err := decoder.Decode(&s); err != nil {
-			c.JSON(400, gin.H{"error": "invalid snapshot"})
-			return
-		}
-		if err := decoder.Decode(new(any)); err != io.EOF {
-			c.JSON(400, gin.H{"error": "expected one JSON object"})
-			return
-		}
-		if !s.Demo {
-			c.JSON(403, gin.H{"error": "demo accounts only"})
-			return
-		}
-		if s.Symbol != "XAUUSDm" || len(s.Currency) != 3 || s.Bid <= 0 || s.Ask < s.Bid || s.TickTimeMS <= 0 {
-			c.JSON(400, gin.H{"error": "invalid symbol, currency, or quote"})
-			return
-		}
-		mu.Lock()
-		now := time.Now()
-		if latest == nil || latest.TickTimeMS != s.TickTimeMS {
-			tickChanged = now
-		}
-		latest, received = &s, now
-		mu.Unlock()
-		c.JSON(200, gin.H{"accepted": true})
-	})
-	api.GET("/status", func(c *gin.Context) {
-		mu.RLock()
-		defer mu.RUnlock()
-		if latest == nil {
-			c.JSON(200, gin.H{"state": "waiting_for_mt5", "trading_enabled": nil, "execution_status": "check_mt5_executor"})
-			return
-		}
-		state := "connected"
-		if time.Since(received) > 10*time.Second || !latest.Connected {
-			state = "disconnected"
-		} else if time.Since(tickChanged) > 30*time.Second {
-			state = "stale_quote"
-		}
-		c.JSON(200, gin.H{"state": state, "trading_enabled": nil, "execution_status": "check_mt5_executor", "received_at": received, "snapshot": latest})
-	})
+	snapshotRoutes(api, goldSymbol)
+	euroAPI := api.Group("/pairs/EURUSDm")
+	controlRoutes(r, euroAPI, db, controlAuth, euroSymbol)
+	candleRoutes(euroAPI, db, euroSymbol)
+	executionRoutes(euroAPI, db, euroSymbol)
+	snapshotRoutes(euroAPI, euroSymbol)
+
 	return r
 }
 
@@ -226,4 +185,56 @@ func main() {
 	if err := server.Shutdown(shutdown); err != nil {
 		log.Print(err)
 	}
+}
+
+func snapshotRoutes(api *gin.RouterGroup, symbol string) {
+	var mu sync.RWMutex
+	var latest *Snapshot
+	var received time.Time
+	var tickChanged time.Time
+	api.POST("/bridge/snapshot", func(c *gin.Context) {
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 4096)
+		decoder := json.NewDecoder(c.Request.Body)
+		decoder.DisallowUnknownFields()
+		var s Snapshot
+		if err := decoder.Decode(&s); err != nil {
+			c.JSON(400, gin.H{"error": "invalid snapshot"})
+			return
+		}
+		if err := decoder.Decode(new(any)); err != io.EOF {
+			c.JSON(400, gin.H{"error": "expected one JSON object"})
+			return
+		}
+		if !s.Demo {
+			c.JSON(403, gin.H{"error": "demo accounts only"})
+			return
+		}
+		if s.Symbol != symbol || len(s.Currency) != 3 || s.Bid <= 0 || s.Ask < s.Bid || s.TickTimeMS <= 0 {
+			c.JSON(400, gin.H{"error": "invalid symbol, currency, or quote"})
+			return
+		}
+		mu.Lock()
+		now := time.Now()
+		if latest == nil || latest.TickTimeMS != s.TickTimeMS {
+			tickChanged = now
+		}
+		latest, received = &s, now
+		mu.Unlock()
+		c.JSON(200, gin.H{"accepted": true})
+	})
+	api.GET("/status", func(c *gin.Context) {
+		mu.RLock()
+		defer mu.RUnlock()
+		if latest == nil {
+			c.JSON(200, gin.H{"state": "waiting_for_mt5", "trading_enabled": nil, "execution_status": "check_mt5_executor"})
+			return
+		}
+		state := "connected"
+		if time.Since(received) > 10*time.Second || !latest.Connected {
+			state = "disconnected"
+		} else if time.Since(tickChanged) > 30*time.Second {
+			state = "stale_quote"
+		}
+		c.JSON(200, gin.H{"state": state, "trading_enabled": nil, "execution_status": "check_mt5_executor", "received_at": received, "snapshot": latest})
+	})
 }

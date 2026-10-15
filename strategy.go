@@ -15,7 +15,7 @@ type StrategyConfig struct {
 	StopBuffer float64 `json:"stop_buffer"`
 }
 
-func strategyConfig() (StrategyConfig, error) {
+func strategyConfig(symbols ...string) (StrategyConfig, error) {
 	c := StrategyConfig{Lookback: 20, StopBuffer: 2.1}
 	var err error
 	if v := os.Getenv("BREAKOUT_LOOKBACK"); v != "" {
@@ -32,6 +32,9 @@ func strategyConfig() (StrategyConfig, error) {
 	}
 	if (c.Lookback != 10 && c.Lookback != 20) || c.StopBuffer <= 0 || math.IsNaN(c.StopBuffer) || math.IsInf(c.StopBuffer, 0) {
 		return c, fmt.Errorf("lookback must be 10 or 20 and stop buffer must be finite and positive")
+	}
+	if selectedSymbol(symbols) == euroSymbol {
+		c.StopBuffer = .0002
 	}
 	return c, nil
 }
@@ -85,7 +88,7 @@ func breakout(b CandleBatch, c StrategyConfig) (*Signal, string) {
 		return nil, "waiting_for_confirmed_swing"
 	}
 	var ok bool
-	s.TP1, s.TP2, ok = structuralTargets(b.Candles, last.Close, s.Side == "BUY")
+	s.TP1, s.TP2, ok = structuralTargets(b.Candles, last.Close, s.Side == "BUY", targetDistance(b.Symbol))
 	if !ok {
 		return nil, "waiting_for_structural_targets"
 	}
@@ -123,7 +126,11 @@ func nearestSwing(bars []Candle, low bool) float64 {
 // two swings. Closed three-bar pivots only; limit history to the bridge's 200.
 const minTargetDistance = 5.0
 
-func structuralTargets(bars []Candle, entry float64, buy bool) (float64, float64, bool) {
+func structuralTargets(bars []Candle, entry float64, buy bool, minimums ...float64) (float64, float64, bool) {
+	minimum := minTargetDistance
+	if len(minimums) > 0 {
+		minimum = minimums[0]
+	}
 	if len(bars) > 200 {
 		bars = bars[len(bars)-200:]
 	}
@@ -134,12 +141,12 @@ func structuralTargets(bars []Candle, entry float64, buy bool) (float64, float64
 		}
 		price := bars[i].High
 		if buy {
-			if price <= bars[i-1].High || price <= bars[i+1].High || price-entry < minTargetDistance-1e-8 {
+			if price <= bars[i-1].High || price <= bars[i+1].High || price-entry < minimum-1e-8 {
 				continue
 			}
 		} else {
 			price = bars[i].Low
-			if price >= bars[i-1].Low || price >= bars[i+1].Low || entry-price < minTargetDistance-1e-8 {
+			if price >= bars[i-1].Low || price >= bars[i+1].Low || entry-price < minimum-1e-8 {
 				continue
 			}
 		}

@@ -33,7 +33,7 @@ func privateDashboardHandler(next http.Handler) http.Handler {
 			http.Error(w, "forbidden", 403)
 			return
 		}
-		if strings.HasPrefix(r.URL.Path, "/api/bridge/") {
+		if strings.Contains(r.URL.Path, "/bridge/") {
 			http.Error(w, "forbidden", 403)
 			return
 		}
@@ -88,19 +88,19 @@ type TradingControl struct {
 	ChangedBy string    `json:"changed_by"`
 }
 
-func (db *candleDatabase) tradingControl(ctx context.Context) (s TradingControl, err error) {
+func (db *candleDatabase) tradingControl(ctx context.Context, symbols ...string) (s TradingControl, err error) {
 	if db == nil {
 		return s, errors.New("database unavailable")
 	}
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
-	err = db.pool.QueryRow(ctx, "SELECT symbol,enabled,revision,changed_at,changed_by FROM trading_controls WHERE symbol='XAUUSDm'").Scan(&s.Symbol, &s.Enabled, &s.Revision, &s.ChangedAt, &s.ChangedBy)
+	err = db.pool.QueryRow(ctx, "SELECT symbol,enabled,revision,changed_at,changed_by FROM trading_controls WHERE symbol=$1", selectedSymbol(symbols)).Scan(&s.Symbol, &s.Enabled, &s.Revision, &s.ChangedAt, &s.ChangedBy)
 	return
 }
 
 var errControlConflict = errors.New("control changed; refresh")
 
-func (db *candleDatabase) changeControl(ctx context.Context, enabled bool, revision int64, actor string) error {
+func (db *candleDatabase) changeControl(ctx context.Context, enabled bool, revision int64, actor string, symbols ...string) error {
 	if db == nil {
 		return errors.New("database unavailable")
 	}
@@ -112,20 +112,21 @@ func (db *candleDatabase) changeControl(ctx context.Context, enabled bool, revis
 	}
 	defer tx.Rollback(ctx)
 	var next int64
-	err = tx.QueryRow(ctx, `UPDATE trading_controls SET enabled=$1,revision=revision+1,changed_at=now(),changed_by=$2 WHERE symbol='XAUUSDm' AND revision=$3 RETURNING revision`, enabled, actor, revision).Scan(&next)
+	err = tx.QueryRow(ctx, `UPDATE trading_controls SET enabled=$1,revision=revision+1,changed_at=now(),changed_by=$2 WHERE symbol=$4 AND revision=$3 RETURNING revision`, enabled, actor, revision, selectedSymbol(symbols)).Scan(&next)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return errControlConflict
 		}
 		return err
 	}
-	_, err = tx.Exec(ctx, "INSERT INTO trading_control_audit(symbol,enabled,revision,actor) VALUES('XAUUSDm',$1,$2,$3)", enabled, next, actor)
+	_, err = tx.Exec(ctx, "INSERT INTO trading_control_audit(symbol,enabled,revision,actor) VALUES($4,$1,$2,$3)", enabled, next, actor, selectedSymbol(symbols))
 	if err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
 }
-func controlRoutes(r *gin.Engine, api *gin.RouterGroup, db *candleDatabase, a *controlAuth) {
+func controlRoutes(r *gin.Engine, api *gin.RouterGroup, db *candleDatabase, a *controlAuth, symbols ...string) {
+	symbol := selectedSymbol(symbols)
 	group := r.Group("/api/controls")
 	group.Use(func(c *gin.Context) {
 		if !a.authorized(c) {
@@ -134,15 +135,15 @@ func controlRoutes(r *gin.Engine, api *gin.RouterGroup, db *candleDatabase, a *c
 		}
 		c.Next()
 	})
-	group.GET("/XAUUSDm", func(c *gin.Context) {
-		s, err := db.tradingControl(c.Request.Context())
+	group.GET("/"+symbol, func(c *gin.Context) {
+		s, err := db.tradingControl(c.Request.Context(), symbol)
 		if err != nil {
 			c.JSON(503, gin.H{"error": "Trading controls unavailable"})
 			return
 		}
 		c.JSON(200, gin.H{"control": s, "csrf": a.csrf})
 	})
-	group.POST("/XAUUSDm", func(c *gin.Context) {
+	group.POST("/"+symbol, func(c *gin.Context) {
 		if c.GetHeader("Origin") != "https://"+a.host || subtle.ConstantTimeCompare([]byte(c.GetHeader("X-CSRF-Token")), []byte(a.csrf)) != 1 {
 			c.AbortWithStatus(403)
 			return
@@ -158,7 +159,7 @@ func controlRoutes(r *gin.Engine, api *gin.RouterGroup, db *candleDatabase, a *c
 			c.AbortWithStatus(400)
 			return
 		}
-		err := db.changeControl(c.Request.Context(), *v.Enabled, v.Revision, a.owner)
+		err := db.changeControl(c.Request.Context(), *v.Enabled, v.Revision, a.owner, symbol)
 		if errors.Is(err, errControlConflict) {
 			c.JSON(409, gin.H{"error": err.Error()})
 			return
@@ -170,7 +171,7 @@ func controlRoutes(r *gin.Engine, api *gin.RouterGroup, db *candleDatabase, a *c
 		c.JSON(200, gin.H{"saved": true})
 	})
 	api.GET("/bridge/control", func(c *gin.Context) {
-		s, err := db.tradingControl(c.Request.Context())
+		s, err := db.tradingControl(c.Request.Context(), symbol)
 		if err != nil {
 			c.Status(503)
 			return
@@ -194,6 +195,6 @@ func (db *candleDatabase) controlAcknowledged(ctx context.Context, pin execution
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	var ok bool
-	err := db.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM execution_snapshots WHERE account=$1 AND server=$2 AND received_at>now()-interval '10 seconds' AND payload @> jsonb_build_object('control_revision',$3::bigint,'control_enabled',$4::boolean,'control_ok',true,'connected',true))`, pin.Account, pin.Server, s.Revision, s.Enabled).Scan(&ok)
+	err := db.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM execution_snapshots WHERE account=$1 AND server=$2 AND symbol=$5 AND received_at>now()-interval '10 seconds' AND payload @> jsonb_build_object('control_revision',$3::bigint,'control_enabled',$4::boolean,'control_ok',true,'connected',true))`, pin.Account, pin.Server, s.Revision, s.Enabled, s.Symbol).Scan(&ok)
 	return ok, err
 }

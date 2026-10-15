@@ -1,11 +1,12 @@
 #property strict
-#property version "1.100"
-#property description "Demo-only XAUUSDm telemetry bridge. Does not place orders."
+#property version "1.101"
+#property description "Demo-only Gold/EURUSD telemetry bridge. Does not place orders."
 
 input string BridgeURL = "http://127.0.0.1:8080";
 input string BridgeToken = "";
 input string GoldSymbol = "XAUUSDm";
 
+string APIPath() {return GoldSymbol=="EURUSDm"?"/api/pairs/EURUSDm":"/api";}
 int previous_status = 0;
 
 int candle_status = 0;
@@ -17,7 +18,7 @@ int OnInit()
       Print("GoldBridge requires a demo account.");
       return INIT_FAILED;
    }
-   if(StringLen(BridgeToken) != 64 || GoldSymbol != "XAUUSDm")
+   if(StringLen(BridgeToken) != 64 || (GoldSymbol != "XAUUSDm" && GoldSymbol != "EURUSDm"))
    {
       Print("Set BridgeToken from the Go application's .local/bridge-token file.");
       return INIT_PARAMETERS_INCORRECT;
@@ -43,9 +44,9 @@ void OnTimer()
    string currency = AccountInfoString(ACCOUNT_CURRENCY);
    if(StringLen(currency) != 3) return;
    string body = StringFormat(
-      "{\"demo\":true,\"connected\":%s,\"currency\":\"%s\",\"balance\":%.8f,\"equity\":%.8f,\"symbol\":\"XAUUSDm\",\"bid\":%.8f,\"ask\":%.8f,\"tick_time_ms\":%I64d}",
+      "{\"demo\":true,\"connected\":%s,\"currency\":\"%s\",\"balance\":%.8f,\"equity\":%.8f,\"symbol\":\"%s\",\"bid\":%.8f,\"ask\":%.8f,\"tick_time_ms\":%I64d}",
       TerminalInfoInteger(TERMINAL_CONNECTED) ? "true" : "false",
-      currency, AccountInfoDouble(ACCOUNT_BALANCE), AccountInfoDouble(ACCOUNT_EQUITY), tick.bid, tick.ask, tick.time_msc);
+      currency, AccountInfoDouble(ACCOUNT_BALANCE), AccountInfoDouble(ACCOUNT_EQUITY), GoldSymbol, tick.bid, tick.ask, tick.time_msc);
    if(TerminalInfoInteger(TERMINAL_CONNECTED))
       for(int frame=0; frame<4; frame++) SendCandles(frame);
    char data[], result[];
@@ -55,7 +56,7 @@ void OnTimer()
    string headers = "Content-Type: application/json\r\nAuthorization: Bearer " + BridgeToken + "\r\n";
    string response_headers;
    ResetLastError();
-   int status = WebRequest("POST", BridgeURL + "/api/bridge/snapshot", headers, 1500, data, result, response_headers);
+   int status = WebRequest("POST", BridgeURL + APIPath() + "/bridge/snapshot", headers, 1500, data, result, response_headers);
    if(status != previous_status)
    {
       if(status == 200) Print("GoldBridge connected to Go API.");
@@ -74,7 +75,7 @@ void SendCandles(int index)
    datetime current = iTime(GoldSymbol, frames[index], 0);
    int count = CopyRates(GoldSymbol, frames[index], 1, 200, rates);
    if(count <= 0 || current <= 0) return; // Retry after terminal downloads history.
-   string body = StringFormat("{\"demo\":true,\"symbol\":\"XAUUSDm\",\"timeframe\":\"%s\",\"current_bar_time\":%I64d,\"candles\":[", names[index], (long)current);
+   string body = StringFormat("{\"demo\":true,\"symbol\":\"%s\",\"timeframe\":\"%s\",\"current_bar_time\":%I64d,\"candles\":[", GoldSymbol, names[index], (long)current);
    for(int i=0; i<count; i++)
    {
       if(i>0) body += ",";
@@ -88,7 +89,7 @@ void SendCandles(int index)
    if(size<=0) return;
    ArrayResize(data,size-1);
    string response_headers;
-   int status=WebRequest("POST",BridgeURL+"/api/bridge/candles","Content-Type: application/json\r\nAuthorization: Bearer "+BridgeToken+"\r\n",1500,data,result,response_headers);
+   int status=WebRequest("POST",BridgeURL+APIPath()+"/bridge/candles","Content-Type: application/json\r\nAuthorization: Bearer "+BridgeToken+"\r\n",1500,data,result,response_headers);
    if(status!=candle_status)
    {
       PrintFormat("GoldBridge candle upload HTTP %d (%s, %d closed candles)",status,names[index],count);

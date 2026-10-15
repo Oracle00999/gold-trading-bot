@@ -12,4 +12,4 @@ int RecoveryDecision(bool incomplete,bool connected,bool historyReady,bool match
 }
 
 // Price units, not account-currency profit.
-double ProfitLockStop(double entry,bool buy) { return entry+(buy?2.0:-2.0); }
+double ProfitLockStop(double entry,bool buy,double distance=2.0) { return entry+(buy?distance:-distance); }

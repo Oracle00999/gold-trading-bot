@@ -40,6 +40,7 @@ type ExecutionEvent struct {
 	Detail string `json:"detail"`
 }
 type ExecutionSnapshot struct {
+	Symbol          string              `json:"symbol"`
 	ControlRevision int64               `json:"control_revision"`
 	ControlEnabled  bool                `json:"control_enabled"`
 	ControlOK       bool                `json:"control_ok"`
@@ -112,7 +113,7 @@ func executionState(s *ExecutionSnapshot, received, timeNow time.Time) string {
 	if !s.Enabled {
 		return "entries_disabled"
 	}
-	if s.Version == "1.105" || s.ControlRevision > 0 {
+	if (s.Version == "1.105" || s.Version == "1.106") || s.ControlRevision > 0 {
 		if !s.ControlOK {
 			return "control_unavailable"
 		}
@@ -125,14 +126,15 @@ func executionState(s *ExecutionSnapshot, received, timeNow time.Time) string {
 	}
 	return "ready"
 }
-func executionRoutes(api *gin.RouterGroup, db *candleDatabase) {
+func executionRoutes(api *gin.RouterGroup, db *candleDatabase, symbols ...string) {
+	symbol := selectedSymbol(symbols)
 	pin, _ := loadExecutionPin() // Invalid/missing configuration rejects all execution uploads.
 	var mu sync.Mutex
 	v := executionView{Deals: []ExecutionDeal{}, Events: []ExecutionEvent{}}
 	if db != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		var raw []byte
-		err := db.pool.QueryRow(ctx, "SELECT payload,received_at FROM execution_snapshots WHERE account=$1 AND server=$2", pin.Account, pin.Server).Scan(&raw, &v.ReceivedAt)
+		err := db.pool.QueryRow(ctx, "SELECT payload,received_at FROM execution_snapshots WHERE account=$1 AND server=$2 AND symbol=$3", pin.Account, pin.Server, symbol).Scan(&raw, &v.ReceivedAt)
 		if err == nil {
 			_ = json.Unmarshal(raw, &v.Snapshot)
 			v.ReceivedAt = time.Time{}
@@ -146,6 +148,13 @@ func executionRoutes(api *gin.RouterGroup, db *candleDatabase) {
 		var s ExecutionSnapshot
 		if err := dec.Decode(&s); err != nil {
 			c.JSON(400, gin.H{"error": "invalid execution JSON"})
+			return
+		}
+		if s.Symbol == "" && symbol == goldSymbol {
+			s.Symbol = goldSymbol
+		}
+		if s.Symbol != symbol {
+			c.AbortWithStatus(400)
 			return
 		}
 		if dec.Decode(new(any)) != io.EOF || s.validate(pin) != nil {
@@ -205,7 +214,7 @@ func executionRoutes(api *gin.RouterGroup, db *candleDatabase) {
 		defer mu.Unlock()
 		v.State = executionState(v.Snapshot, v.ReceivedAt, time.Now())
 		if db != nil {
-			if err := db.executionHistory(c.Request.Context(), &v, pin); err != nil {
+			if err := db.executionHistory(c.Request.Context(), &v, pin, symbol); err != nil {
 				c.JSON(503, gin.H{"error": "execution history unavailable"})
 				return
 			}
@@ -221,34 +230,37 @@ func (db *candleDatabase) saveExecution(ctx context.Context, s ExecutionSnapshot
 		return err
 	}
 	defer tx.Rollback(ctx)
+	if s.Symbol == "" {
+		s.Symbol = goldSymbol
+	}
 	raw, err := json.Marshal(s)
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO execution_snapshots VALUES($1,$2,$3,$4) ON CONFLICT(account,server) DO UPDATE SET payload=EXCLUDED.payload,received_at=EXCLUDED.received_at`, s.Account, s.Server, raw, received)
+	_, err = tx.Exec(ctx, `INSERT INTO execution_snapshots(account,server,payload,received_at,symbol) VALUES($1,$2,$3,$4,$5) ON CONFLICT(account,server,symbol) DO UPDATE SET payload=EXCLUDED.payload,received_at=EXCLUDED.received_at`, s.Account, s.Server, raw, received, s.Symbol)
 	if err != nil {
 		return err
 	}
 	for _, d := range s.Deals {
 		raw, _ = json.Marshal(d)
-		_, err = tx.Exec(ctx, `INSERT INTO execution_deals VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING`, s.Account, s.Server, d.Ticket, d.Time, raw)
+		_, err = tx.Exec(ctx, `INSERT INTO execution_deals(account,server,ticket,broker_time,payload,symbol) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING`, s.Account, s.Server, d.Ticket, d.Time, raw, s.Symbol)
 		if err != nil {
 			return err
 		}
 	}
 	for _, e := range s.Events {
 		raw, _ = json.Marshal(e)
-		_, err = tx.Exec(ctx, `INSERT INTO execution_events VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING`, s.Account, s.Server, e.ID, e.Time, raw)
+		_, err = tx.Exec(ctx, `INSERT INTO execution_events(account,server,id,broker_time,payload,symbol) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING`, s.Account, s.Server, e.ID, e.Time, raw, s.Symbol)
 		if err != nil {
 			return err
 		}
 	}
 	return tx.Commit(ctx)
 }
-func (db *candleDatabase) executionHistory(ctx context.Context, v *executionView, pin executionPin) error {
+func (db *candleDatabase) executionHistory(ctx context.Context, v *executionView, pin executionPin, symbols ...string) error {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	rows, err := db.pool.Query(ctx, `SELECT payload FROM execution_deals WHERE account=$1 AND server=$2 ORDER BY broker_time DESC,ticket DESC LIMIT 200`, pin.Account, pin.Server)
+	rows, err := db.pool.Query(ctx, `SELECT payload FROM execution_deals WHERE account=$1 AND server=$2 AND symbol=$3 ORDER BY broker_time DESC,ticket DESC LIMIT 200`, pin.Account, pin.Server, selectedSymbol(symbols))
 	if err != nil {
 		return err
 	}
@@ -269,7 +281,7 @@ func (db *candleDatabase) executionHistory(ctx context.Context, v *executionView
 		return err
 	}
 	rows.Close()
-	rows, err = db.pool.Query(ctx, `SELECT payload FROM execution_events WHERE account=$1 AND server=$2 ORDER BY broker_time DESC,id DESC LIMIT 50`, pin.Account, pin.Server)
+	rows, err = db.pool.Query(ctx, `SELECT payload FROM execution_events WHERE account=$1 AND server=$2 AND symbol=$3 ORDER BY broker_time DESC,id DESC LIMIT 50`, pin.Account, pin.Server, selectedSymbol(symbols))
 	if err != nil {
 		return err
 	}

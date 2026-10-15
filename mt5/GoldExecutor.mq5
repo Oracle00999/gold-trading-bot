@@ -1,5 +1,5 @@
 #property strict
-#property version "1.105"
+#property version "1.106"
 #property description "Demo-only executor for Go M3 signals. Attach once per demo account."
 #include <Trade/Trade.mqh>
 #include "ExecutionPolicy.mqh"
@@ -11,12 +11,13 @@ input long DemoLogin=0; // Explicitly pin to the demo account shown in MT5.
 input bool EnableEntries=false;
 input double CommissionPerLot=0; // Estimated round-trip USD/lot.
 input double SlippageAllowance=0.05; // Price units, included in risk estimate.
-const string TradeSymbol="XAUUSDm";
-const double MinTargetDistance=5.0;
+input string TradeSymbol="XAUUSDm";
+double MinTargetDistance=5.0,ProfitLockDistance=2.0;
 const double Lots=0.06, PairRisk=200, DailyLoss=1000;
-const ulong Magic1=2601001, Magic2=2601002;
+ulong Magic1=2601001, Magic2=2601002;
 CTrade trade;
-string prefix;
+string prefix,accountPrefix;
+string APIPath() {return TradeSymbol=="EURUSDm"?"/api/pairs/EURUSDm":"/api";}
 int lockfile=INVALID_HANDLE;
 datetime startupBar=0;
 double intentTP1=0,intentTP2=0;
@@ -28,7 +29,7 @@ datetime controlResumeBar=0;
 string eventQueue[];
 datetime lastPublish=0,lastRecovery=0;
 
-string Key(string name) { return prefix+name; }
+string Key(string name) { return ((name=="day" || name=="baseline" || name=="blocked")?accountPrefix:prefix)+name; }
 double State(string name) { return GlobalVariableCheck(Key(name)) ? GlobalVariableGet(Key(name)) : 0; }
 bool Save(string name,double value) {
  if(GlobalVariableSet(Key(name),value)==0) { storageOK=false; Print("Cannot persist execution state; removing executor."); ExpertRemove(); return false; }
@@ -41,10 +42,14 @@ bool AccountOK() {
  AccountInfoInteger(ACCOUNT_MARGIN_MODE)==ACCOUNT_MARGIN_MODE_RETAIL_HEDGING;
 }
 int OnInit() {
- if(!AccountOK() || _Symbol!=TradeSymbol || StringLen(BridgeToken)!=64 || CommissionPerLot<0 || SlippageAllowance<0) {
-  Print("Requires pinned USD hedging DEMO login, XAUUSDm chart, bridge token and nonnegative cost assumptions."); return INIT_PARAMETERS_INCORRECT;
+ if((TradeSymbol!="XAUUSDm" && TradeSymbol!="EURUSDm") || !AccountOK() || _Symbol!=TradeSymbol || StringLen(BridgeToken)!=64 || CommissionPerLot<0 || SlippageAllowance<0) {
+  Print("Requires pinned USD hedging DEMO login, XAUUSDm or EURUSDm chart, bridge token and nonnegative cost assumptions."); return INIT_PARAMETERS_INCORRECT;
  }
- prefix=StringFormat("GoldExec.%s.%I64d.",DemoServer,DemoLogin);
+ accountPrefix=StringFormat("GoldExec.%s.%I64d.",DemoServer,DemoLogin);
+ prefix=accountPrefix+(TradeSymbol=="EURUSDm"?"EURUSDm.":"");
+ if(TradeSymbol=="EURUSDm") {MinTargetDistance=0.0005;ProfitLockDistance=0.0002;Magic1=2602001;Magic2=2602002;
+  if(SlippageAllowance>0.0001) {Print("EURUSD slippage allowance must be at most one pip; use 0.00001.");return INIT_PARAMETERS_INCORRECT;}
+ }
  lockfile=FileOpen(prefix+"lock",FILE_READ|FILE_WRITE|FILE_BIN); // No FILE_SHARE flags: single terminal instance.
  if(lockfile==INVALID_HANDLE) { Print("Another executor holds this account lock."); return INIT_FAILED; }
  startupBar=iTime(TradeSymbol,PERIOD_M3,0);
@@ -54,7 +59,7 @@ int OnInit() {
  trade.SetDeviationInPoints((ulong)MathCeil(SlippageAllowance/SymbolInfoDouble(TradeSymbol,SYMBOL_POINT)));
  LoadEvents();
  if(!EventSetTimer(1)) return INIT_FAILED;
- Record("started","Executor 1.105 loaded; reconciling broker positions and persistent state.");
+ Record("started","Executor 1.106 loaded; reconciling broker positions and persistent state.");
  Print("Demo executor ready. New entries: ",EnableEntries,"; lots 2 x 0.06; pair risk $200; daily gate $1000.");
  return INIT_SUCCEEDED;
 }
@@ -92,7 +97,7 @@ void ManagePositions() {
   bool buy=PositionGetInteger(POSITION_TYPE)==POSITION_TYPE_BUY;
   double ticksize=SymbolInfoDouble(TradeSymbol,SYMBOL_TRADE_TICK_SIZE);
   if(ticksize<=0) return;
-  double lockedStop=NormalizeDouble(MathRound(ProfitLockStop(entry,buy)/ticksize)*ticksize,(int)SymbolInfoInteger(TradeSymbol,SYMBOL_DIGITS));
+  double lockedStop=NormalizeDouble(MathRound(ProfitLockStop(entry,buy,ProfitLockDistance)/ticksize)*ticksize,(int)SymbolInfoInteger(TradeSymbol,SYMBOL_DIGITS));
   if((buy && sl>=lockedStop) || (!buy && sl>0 && sl<=lockedStop)) continue;
   MqlTick q; if(!SymbolInfoTick(TradeSymbol,q)) return;
   double distance=MathMax(SymbolInfoInteger(TradeSymbol,SYMBOL_TRADE_STOPS_LEVEL),SymbolInfoInteger(TradeSymbol,SYMBOL_TRADE_FREEZE_LEVEL))*SymbolInfoDouble(TradeSymbol,SYMBOL_POINT);
@@ -151,7 +156,7 @@ bool OpenLeg(ENUM_ORDER_TYPE side,double stop,int leg,ulong &pid,ulong &ticket) 
   ticket=PositionGetTicket(i);
   if((ulong)PositionGetInteger(POSITION_IDENTIFIER)!=pid) continue;
   if(MathAbs(PositionGetDouble(POSITION_VOLUME)-Lots)>0.00000001 || PositionGetDouble(POSITION_SL)<=0 || PositionGetDouble(POSITION_TP)<=0) return false;
-  if((intentTP1-PositionGetDouble(POSITION_PRICE_OPEN))*d<MinTargetDistance-0.00000001) { Record("entry_rejected","Fill left TP1 less than 5.0 away; reconcile incomplete pair"); return false; }
+  if((intentTP1-PositionGetDouble(POSITION_PRICE_OPEN))*d<MinTargetDistance-0.00000001) { Record("entry_rejected","Fill left TP1 closer than the symbol minimum; reconcile incomplete pair"); return false; }
   // Preserve absolute structural targets; never shift them with the fill.
 
   if(!EnsureProtection(ticket,stop,target)) return false;
@@ -165,7 +170,7 @@ bool OpenLeg(ENUM_ORDER_TYPE side,double stop,int leg,ulong &pid,ulong &ticket) 
 bool RefreshControl() {
  controlOK=false;
  char data[],reply[];string response;
- int status=WebRequest("GET",BridgeURL+"/api/bridge/control","Authorization: Bearer "+BridgeToken+"\r\n",1500,data,reply,response);
+ int status=WebRequest("GET",BridgeURL+APIPath()+"/bridge/control","Authorization: Bearer "+BridgeToken+"\r\n",1500,data,reply,response);
  if(status!=200) return false;
  string fields[];
  if(StringSplit(CharArrayToString(reply,0,-1,CP_UTF8),',',fields)!=2) return false;
@@ -180,7 +185,8 @@ bool RefreshControl() {
 void OnTimer() {
  if(!AccountOK()) { Print("Account changed; executor removed."); ExpertRemove(); return; }
  if(!TerminalInfoInteger(TERMINAL_CONNECTED)) { controlOK=false; Publish(); return; }
- UpdateDay();
+ int dailyLock=FileOpen(accountPrefix+"cycle.lock",FILE_READ|FILE_WRITE|FILE_BIN);
+ if(dailyLock!=INVALID_HANDLE) {UpdateDay();FileClose(dailyLock);}
  if(!storageOK) return;
  ReconcilePartial();
  RecoverIdentifiers();
@@ -188,14 +194,25 @@ void OnTimer() {
  RefreshControl();
  Publish();
  if(!controlOK || !controlEnabled || !storageOK || !EnableEntries || State("recovery")!=0 || State("halt")!=0 || State("blocked")!=0 || !TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) || !MQLInfoInteger(MQL_TRADE_ALLOWED)) return;
+ // Serialize entries across symbols without blocking their position management.
+ int entryLock=FileOpen(accountPrefix+"cycle.lock",FILE_READ|FILE_WRITE|FILE_BIN);
+ if(entryLock==INVALID_HANDLE) return;
+ TryEntry();
+ FileClose(entryLock);
+}
+void TryEntry() {
+ UpdateDay();
+ if(!storageOK || State("blocked")!=0) return;
  // Account-wide gate: no overlap with manual orders or other bots.
  if(PositionsTotal()!=0 || OrdersTotal()!=0) return;
+ if((GlobalVariableCheck(accountPrefix+"recovery") && GlobalVariableGet(accountPrefix+"recovery")!=0) ||
+    (GlobalVariableCheck(accountPrefix+"EURUSDm.recovery") && GlobalVariableGet(accountPrefix+"EURUSDm.recovery")!=0)) return;
  datetime current=iTime(TradeSymbol,PERIOD_M3,0);
  if(current<=controlResumeBar || current<=startupBar || TimeCurrent()-current>30 || TimeCurrent()<current) return;
  datetime bar=current-180;
  if(State("attempt")>=(double)bar) return;
  char data[],reply[]; string response;
- int status=WebRequest("GET",BridgeURL+"/api/bridge/intent","Authorization: Bearer "+BridgeToken+"\r\n",1500,data,reply,response);
+ int status=WebRequest("GET",BridgeURL+APIPath()+"/bridge/intent","Authorization: Bearer "+BridgeToken+"\r\n",1500,data,reply,response);
  if(status!=200) { if(status!=204) Record("api_unavailable",StringFormat("Intent HTTP %d; terminal error %d",status,GetLastError())); return; }
  string fields[];
  if(StringSplit(CharArrayToString(reply,0,-1,CP_UTF8),',',fields)!=7) return;
@@ -399,10 +416,10 @@ void Publish() {
  deals+="]";
  string events="[";for(int i=0;i<ArraySize(eventQueue);i++) {if(i>0) events+=",";events+=eventQueue[i];}events+="]";
  double change=AccountInfoDouble(ACCOUNT_EQUITY)-State("baseline"),remaining=State("blocked")!=0?0:MathMax(0,DailyLoss-MathMax(0,-change));
- string body=StringFormat("{\"demo\":true,\"account\":\"%I64d\",\"server\":\"%s\",\"version\":\"1.105\",\"broker_time\":%I64d,\"connected\":%s,\"enabled\":%s,\"halted\":%s,\"daily_blocked\":%s,\"recovering\":%s,\"history_ok\":%s,\"daily_remaining\":%.8f,\"day_equity_change\":%.8f,\"positions\":%s,\"deals\":%s,\"events\":%s}",DemoLogin,Escape(DemoServer),(long)TimeCurrent(),Bool(TerminalInfoInteger(TERMINAL_CONNECTED)),Bool(EnableEntries && TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) && MQLInfoInteger(MQL_TRADE_ALLOWED)),Bool(State("halt")!=0),Bool(State("blocked")!=0),Bool(State("recovery")!=0),Bool(history),remaining,change,positions,deals,events);
- body=StringSubstr(body,0,StringLen(body)-1)+StringFormat(",\"control_revision\":%I64d,\"control_enabled\":%s,\"control_ok\":%s}",controlRevision,Bool(controlEnabled),Bool(controlOK));
+ string body=StringFormat("{\"demo\":true,\"account\":\"%I64d\",\"server\":\"%s\",\"version\":\"1.106\",\"broker_time\":%I64d,\"connected\":%s,\"enabled\":%s,\"halted\":%s,\"daily_blocked\":%s,\"recovering\":%s,\"history_ok\":%s,\"daily_remaining\":%.8f,\"day_equity_change\":%.8f,\"positions\":%s,\"deals\":%s,\"events\":%s}",DemoLogin,Escape(DemoServer),(long)TimeCurrent(),Bool(TerminalInfoInteger(TERMINAL_CONNECTED)),Bool(EnableEntries && TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) && MQLInfoInteger(MQL_TRADE_ALLOWED)),Bool(State("halt")!=0),Bool(State("blocked")!=0),Bool(State("recovery")!=0),Bool(history),remaining,change,positions,deals,events);
+ body=StringSubstr(body,0,StringLen(body)-1)+",\"symbol\":\""+TradeSymbol+"\""+StringFormat(",\"control_revision\":%I64d,\"control_enabled\":%s,\"control_ok\":%s}",controlRevision,Bool(controlEnabled),Bool(controlOK));
  char data[],reply[];int size=StringToCharArray(body,data,0,WHOLE_ARRAY,CP_UTF8);if(size<=0) return;ArrayResize(data,size-1);string headers;
- int status=WebRequest("POST",BridgeURL+"/api/bridge/execution","Content-Type: application/json\r\nAuthorization: Bearer "+BridgeToken+"\r\n",1500,data,reply,headers);
+ int status=WebRequest("POST",BridgeURL+APIPath()+"/bridge/execution","Content-Type: application/json\r\nAuthorization: Bearer "+BridgeToken+"\r\n",1500,data,reply,headers);
  if(status==200) {ArrayResize(eventQueue,0);StoreEvents();}
  else PrintFormat("Execution telemetry HTTP %d; queued events retained",status);
 }

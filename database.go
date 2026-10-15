@@ -22,6 +22,9 @@ var executionMigration string
 //go:embed migrations/004_trading_controls.sql
 var controlMigration string
 
+//go:embed migrations/005_eurusd.sql
+var euroMigration string
+
 type candleDatabase struct{ pool *pgxpool.Pool }
 
 func openDatabase() (*candleDatabase, error) {
@@ -92,6 +95,16 @@ func openDatabase() (*candleDatabase, error) {
 		}
 	}
 	if err == nil {
+		var exists bool
+		err = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=5)").Scan(&exists)
+		if err == nil && !exists {
+			_, err = tx.Exec(ctx, euroMigration)
+			if err == nil {
+				_, err = tx.Exec(ctx, "INSERT INTO schema_migrations VALUES(5)")
+			}
+		}
+	}
+	if err == nil {
 		err = tx.Commit(ctx)
 	}
 	if err != nil {
@@ -120,12 +133,12 @@ func (db *candleDatabase) save(ctx context.Context, b CandleBatch, received time
 	}
 	return tx.Commit(ctx)
 }
-func (db *candleDatabase) load() (map[string]storedCandles, error) {
+func (db *candleDatabase) load(symbols ...string) (map[string]storedCandles, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	out := map[string]storedCandles{}
 	for _, tf := range []string{"M3", "M5", "M15", "H1"} {
-		b := storedCandles{CandleBatch: CandleBatch{Demo: true, Symbol: "XAUUSDm", Timeframe: tf}, Restored: true}
+		b := storedCandles{CandleBatch: CandleBatch{Demo: true, Symbol: selectedSymbol(symbols), Timeframe: tf}, Restored: true}
 		err := db.pool.QueryRow(ctx, "SELECT current_bar_time,received_at FROM candle_windows WHERE symbol=$1 AND timeframe=$2", b.Symbol, tf).Scan(&b.CurrentBarTime, &b.ReceivedAt)
 		if err == pgx.ErrNoRows {
 			continue

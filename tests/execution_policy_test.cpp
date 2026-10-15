@@ -1,6 +1,9 @@
 #include <cassert>
+#include <cmath>
 #include "../mt5/ExecutionPolicy.mqh"
 int main() {
+ assert(std::abs(ProfitLockStop(1.1000,true,.0002)-1.1002)<1e-10);
+ assert(std::abs(ProfitLockStop(1.1000,false,.0002)-1.0998)<1e-10);
  assert(ProfitLockStop(4100,false)==4098);
  assert(ProfitLockStop(4100,true)==4102);
  assert(RecoveryDecision(false,true,true,true,false,true)==RECOVERY_NONE); // completed pair survives restart

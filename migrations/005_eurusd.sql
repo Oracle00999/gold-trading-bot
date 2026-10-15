@@ -1,0 +1,10 @@
+ALTER TABLE trading_controls DROP CONSTRAINT trading_controls_symbol_check;
+ALTER TABLE trading_controls ADD CHECK (symbol IN ('XAUUSDm','EURUSDm'));
+INSERT INTO trading_controls(symbol) VALUES ('EURUSDm');
+ALTER TABLE execution_snapshots ADD COLUMN symbol text NOT NULL DEFAULT 'XAUUSDm';
+ALTER TABLE execution_snapshots DROP CONSTRAINT execution_snapshots_pkey;
+ALTER TABLE execution_snapshots ADD PRIMARY KEY(account,server,symbol);
+ALTER TABLE execution_deals ADD COLUMN symbol text NOT NULL DEFAULT 'XAUUSDm';
+ALTER TABLE execution_events ADD COLUMN symbol text NOT NULL DEFAULT 'XAUUSDm';
+ALTER TABLE execution_events DROP CONSTRAINT execution_events_pkey;
+ALTER TABLE execution_events ADD PRIMARY KEY(account,server,symbol,id);
