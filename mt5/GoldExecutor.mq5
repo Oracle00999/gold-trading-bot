@@ -53,7 +53,7 @@ int OnInit() {
  lockfile=FileOpen(prefix+"lock",FILE_READ|FILE_WRITE|FILE_BIN); // No FILE_SHARE flags: single terminal instance.
  if(lockfile==INVALID_HANDLE) { Print("Another executor holds this account lock."); return INIT_FAILED; }
  startupBar=iTime(TradeSymbol,PERIOD_M3,0);
- if(startupBar<=0) { FileClose(lockfile); lockfile=INVALID_HANDLE; return INIT_FAILED; }
+ // New symbols may still be downloading history. The timer waits for M3.
  trade.SetAsyncMode(false);
  trade.SetTypeFillingBySymbol(TradeSymbol);
  trade.SetDeviationInPoints((ulong)MathCeil(SlippageAllowance/SymbolInfoDouble(TradeSymbol,SYMBOL_POINT)));
@@ -194,6 +194,7 @@ void OnTimer() {
  RefreshControl();
  Publish();
  if(!controlOK || !controlEnabled || !storageOK || !EnableEntries || State("recovery")!=0 || State("halt")!=0 || State("blocked")!=0 || !TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) || !MQLInfoInteger(MQL_TRADE_ALLOWED)) return;
+ if(startupBar<=0) {startupBar=iTime(TradeSymbol,PERIOD_M3,0);return;}
  // Serialize entries across symbols without blocking their position management.
  int entryLock=FileOpen(accountPrefix+"cycle.lock",FILE_READ|FILE_WRITE|FILE_BIN);
  if(entryLock==INVALID_HANDLE) return;
