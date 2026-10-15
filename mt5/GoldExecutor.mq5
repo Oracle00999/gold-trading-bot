@@ -1,5 +1,5 @@
 #property strict
-#property version "1.104"
+#property version "1.105"
 #property description "Demo-only executor for Go M3 signals. Attach once per demo account."
 #include <Trade/Trade.mqh>
 #include "ExecutionPolicy.mqh"
@@ -22,6 +22,9 @@ datetime startupBar=0;
 double intentTP1=0,intentTP2=0;
 string rejection="";
 bool storageOK=true;
+long controlRevision=0;
+bool controlEnabled=false,controlOK=false;
+datetime controlResumeBar=0;
 string eventQueue[];
 datetime lastPublish=0,lastRecovery=0;
 
@@ -51,7 +54,7 @@ int OnInit() {
  trade.SetDeviationInPoints((ulong)MathCeil(SlippageAllowance/SymbolInfoDouble(TradeSymbol,SYMBOL_POINT)));
  LoadEvents();
  if(!EventSetTimer(1)) return INIT_FAILED;
- Record("started","Executor 1.104 loaded; reconciling broker positions and persistent state.");
+ Record("started","Executor 1.105 loaded; reconciling broker positions and persistent state.");
  Print("Demo executor ready. New entries: ",EnableEntries,"; lots 2 x 0.06; pair risk $200; daily gate $1000.");
  return INIT_SUCCEEDED;
 }
@@ -157,20 +160,38 @@ bool OpenLeg(ENUM_ORDER_TYPE side,double stop,int leg,ulong &pid,ulong &ticket) 
  return false;
 }
 
+// A failed poll revokes entry permission immediately. Position management
+// runs before this network request and does not depend on dashboard permission.
+bool RefreshControl() {
+ controlOK=false;
+ char data[],reply[];string response;
+ int status=WebRequest("GET",BridgeURL+"/api/bridge/control","Authorization: Bearer "+BridgeToken+"\r\n",1500,data,reply,response);
+ if(status!=200) return false;
+ string fields[];
+ if(StringSplit(CharArrayToString(reply,0,-1,CP_UTF8),',',fields)!=2) return false;
+ long revision=StringToInteger(fields[0]);
+ if(revision<=0 || IntegerToString(revision)!=fields[0] || (fields[1]!="0" && fields[1]!="1")) return false;
+ bool enabled=fields[1]=="1";
+ if(revision!=controlRevision) controlResumeBar=iTime(TradeSymbol,PERIOD_M3,0);
+ controlRevision=revision;controlEnabled=enabled;controlOK=true;
+ return true;
+}
+
 void OnTimer() {
  if(!AccountOK()) { Print("Account changed; executor removed."); ExpertRemove(); return; }
- if(!TerminalInfoInteger(TERMINAL_CONNECTED)) { Publish(); return; }
+ if(!TerminalInfoInteger(TERMINAL_CONNECTED)) { controlOK=false; Publish(); return; }
  UpdateDay();
  if(!storageOK) return;
  ReconcilePartial();
  RecoverIdentifiers();
- Publish();
  ManagePositions(); // Keep managing existing TP2 even when new entries are disabled.
- if(!storageOK || !EnableEntries || State("recovery")!=0 || State("halt")!=0 || State("blocked")!=0 || !TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) || !MQLInfoInteger(MQL_TRADE_ALLOWED)) return;
+ RefreshControl();
+ Publish();
+ if(!controlOK || !controlEnabled || !storageOK || !EnableEntries || State("recovery")!=0 || State("halt")!=0 || State("blocked")!=0 || !TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) || !MQLInfoInteger(MQL_TRADE_ALLOWED)) return;
  // Account-wide gate: no overlap with manual orders or other bots.
  if(PositionsTotal()!=0 || OrdersTotal()!=0) return;
  datetime current=iTime(TradeSymbol,PERIOD_M3,0);
- if(current<=startupBar || TimeCurrent()-current>30 || TimeCurrent()<current) return;
+ if(current<=controlResumeBar || current<=startupBar || TimeCurrent()-current>30 || TimeCurrent()<current) return;
  datetime bar=current-180;
  if(State("attempt")>=(double)bar) return;
  char data[],reply[]; string response;
@@ -189,6 +210,8 @@ void OnTimer() {
  stop=(side==ORDER_TYPE_BUY?MathFloor(stop/ticksize):MathCeil(stop/ticksize))*ticksize;
  double risk,entry;
  if(!Estimate(side,stop,risk,entry)) { Save("attempt",(double)bar); Record("signal_skipped",rejection); return; }
+ long approvedRevision=controlRevision;
+ if(!RefreshControl() || !controlEnabled || controlRevision!=approvedRevision) return;
  // Persist BEFORE sending. Any uncertain response/restart halts, never retries the signal.
  if(!Save("attempt",(double)bar) || !Save("halt",1) || !Save("pid1",0) || !Save("pid2",0) || !Save("started",(double)TimeCurrent()) || !Save("recovery",1)) return;
  ulong pid1=0,pid2=0,ticket1=0,ticket2=0;
@@ -376,7 +399,8 @@ void Publish() {
  deals+="]";
  string events="[";for(int i=0;i<ArraySize(eventQueue);i++) {if(i>0) events+=",";events+=eventQueue[i];}events+="]";
  double change=AccountInfoDouble(ACCOUNT_EQUITY)-State("baseline"),remaining=State("blocked")!=0?0:MathMax(0,DailyLoss-MathMax(0,-change));
- string body=StringFormat("{\"demo\":true,\"account\":\"%I64d\",\"server\":\"%s\",\"version\":\"1.104\",\"broker_time\":%I64d,\"connected\":%s,\"enabled\":%s,\"halted\":%s,\"daily_blocked\":%s,\"recovering\":%s,\"history_ok\":%s,\"daily_remaining\":%.8f,\"day_equity_change\":%.8f,\"positions\":%s,\"deals\":%s,\"events\":%s}",DemoLogin,Escape(DemoServer),(long)TimeCurrent(),Bool(TerminalInfoInteger(TERMINAL_CONNECTED)),Bool(EnableEntries && TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) && MQLInfoInteger(MQL_TRADE_ALLOWED)),Bool(State("halt")!=0),Bool(State("blocked")!=0),Bool(State("recovery")!=0),Bool(history),remaining,change,positions,deals,events);
+ string body=StringFormat("{\"demo\":true,\"account\":\"%I64d\",\"server\":\"%s\",\"version\":\"1.105\",\"broker_time\":%I64d,\"connected\":%s,\"enabled\":%s,\"halted\":%s,\"daily_blocked\":%s,\"recovering\":%s,\"history_ok\":%s,\"daily_remaining\":%.8f,\"day_equity_change\":%.8f,\"positions\":%s,\"deals\":%s,\"events\":%s}",DemoLogin,Escape(DemoServer),(long)TimeCurrent(),Bool(TerminalInfoInteger(TERMINAL_CONNECTED)),Bool(EnableEntries && TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) && MQLInfoInteger(MQL_TRADE_ALLOWED)),Bool(State("halt")!=0),Bool(State("blocked")!=0),Bool(State("recovery")!=0),Bool(history),remaining,change,positions,deals,events);
+ body=StringSubstr(body,0,StringLen(body)-1)+StringFormat(",\"control_revision\":%I64d,\"control_enabled\":%s,\"control_ok\":%s}",controlRevision,Bool(controlEnabled),Bool(controlOK));
  char data[],reply[];int size=StringToCharArray(body,data,0,WHOLE_ARRAY,CP_UTF8);if(size<=0) return;ArrayResize(data,size-1);string headers;
  int status=WebRequest("POST",BridgeURL+"/api/bridge/execution","Content-Type: application/json\r\nAuthorization: Bearer "+BridgeToken+"\r\n",1500,data,reply,headers);
  if(status==200) {ArrayResize(eventQueue,0);StoreEvents();}

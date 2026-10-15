@@ -40,6 +40,9 @@ type ExecutionEvent struct {
 	Detail string `json:"detail"`
 }
 type ExecutionSnapshot struct {
+	ControlRevision int64               `json:"control_revision"`
+	ControlEnabled  bool                `json:"control_enabled"`
+	ControlOK       bool                `json:"control_ok"`
 	Demo            bool                `json:"demo"`
 	Account         string              `json:"account"`
 	Server          string              `json:"server"`

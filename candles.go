@@ -58,6 +58,7 @@ type storedCandles struct {
 }
 
 func candleRoutes(api *gin.RouterGroup, db *candleDatabase) {
+	pin, _ := loadExecutionPin()
 	cfg, err := strategyConfig()
 	if err != nil {
 		panic(err)
@@ -65,6 +66,7 @@ func candleRoutes(api *gin.RouterGroup, db *candleDatabase) {
 	var lastSignal *Signal
 	signalState := "waiting_for_m3"
 	var evaluatedAt time.Time
+	var signalWindowStarted time.Time
 	var mu sync.RWMutex
 	batches := map[string]storedCandles{}
 	if db != nil {
@@ -105,6 +107,9 @@ func candleRoutes(api *gin.RouterGroup, db *candleDatabase) {
 			}
 		}
 		if b.Timeframe == "M3" {
+			if old, ok := batches["M3"]; !ok || old.CurrentBarTime != b.CurrentBarTime {
+				signalWindowStarted = received
+			}
 			signal, state := breakout(b, cfg)
 			if signal != nil && db != nil {
 				if err := db.saveSignal(c.Request.Context(), signal); err != nil {
@@ -125,6 +130,28 @@ func candleRoutes(api *gin.RouterGroup, db *candleDatabase) {
 		mu.RLock()
 		defer mu.RUnlock()
 		c.Header("Cache-Control", "no-store")
+		if db != nil {
+			control, err := db.tradingControl(c.Request.Context())
+			if err != nil {
+				c.Status(503)
+				return
+			}
+			// A resumed pair can use only a newly evaluated signal, never one
+			// that was already pending when the owner changed permission.
+			if !controlAllowsSignal(control, signalWindowStarted) {
+				c.Status(204)
+				return
+			}
+			acknowledged, err := db.controlAcknowledged(c.Request.Context(), pin, control)
+			if err != nil {
+				c.Status(503)
+				return
+			}
+			if !acknowledged {
+				c.Status(204)
+				return
+			}
+		}
 		if lastSignal == nil || evaluatedAt.IsZero() || time.Since(evaluatedAt) > 10*time.Second {
 			c.Status(http.StatusNoContent)
 			return

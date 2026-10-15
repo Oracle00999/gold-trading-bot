@@ -52,6 +52,7 @@ func router(token string, databases ...*candleDatabase) *gin.Engine {
 	// Allow loopback and one explicitly configured private HTTPS hostname.
 	privateHostBytes, _ := os.ReadFile(".local/dashboard-host")
 	privateHost := strings.TrimSpace(string(privateHostBytes))
+	controlAuth := configuredControlAuth(privateHost)
 	r.Use(func(c *gin.Context) {
 		if !dashboardHostAllowed(c.Request.Host, privateHost) {
 			c.AbortWithStatus(403)
@@ -67,10 +68,11 @@ func router(token string, databases ...*candleDatabase) *gin.Engine {
 	}
 	readToken := hex.EncodeToString(readKey)
 	r.GET("/", func(c *gin.Context) {
+		controlAuth.issue(c)
 		c.SetSameSite(http.SameSiteStrictMode)
 		// Remove the legacy narrower cookie, which otherwise shadows /api.
 		c.SetCookie("dashboard", "", -1, "/api/status", "", false, true)
-		c.SetCookie("dashboard", readToken, 0, "/api", "", false, true)
+		c.SetCookie("dashboard", readToken, 0, "/api", "", c.Request.Host == privateHost, true)
 		c.Data(200, "text/html; charset=utf-8", dashboard)
 	})
 	_ = r.SetTrustedProxies(nil)
@@ -93,6 +95,7 @@ func router(token string, databases ...*candleDatabase) *gin.Engine {
 		}
 		c.Next()
 	})
+	controlRoutes(r, api, db, controlAuth)
 	candleRoutes(api, db)
 	executionRoutes(api, db)
 	api.POST("/bridge/snapshot", func(c *gin.Context) {
@@ -200,7 +203,9 @@ func main() {
 	}
 	defer db.pool.Close()
 	gin.SetMode(gin.ReleaseMode)
-	server := &http.Server{Addr: "127.0.0.1:8080", Handler: router(token, db), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
+	handler := router(token, db)
+	privateServer := &http.Server{Addr: "127.0.0.1:8081", Handler: privateDashboardHandler(handler), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
+	server := &http.Server{Addr: "127.0.0.1:8080", Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	go func() {
@@ -209,9 +214,15 @@ func main() {
 			log.Fatal(err)
 		}
 	}()
+	go func() {
+		if err := privateServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatal(err)
+		}
+	}()
 	<-ctx.Done()
 	shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	_ = privateServer.Shutdown(shutdown)
 	if err := server.Shutdown(shutdown); err != nil {
 		log.Print(err)
 	}

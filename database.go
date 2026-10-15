@@ -19,6 +19,9 @@ var strategyMigration string
 //go:embed migrations/003_execution.sql
 var executionMigration string
 
+//go:embed migrations/004_trading_controls.sql
+var controlMigration string
+
 type candleDatabase struct{ pool *pgxpool.Pool }
 
 func openDatabase() (*candleDatabase, error) {
@@ -75,6 +78,16 @@ func openDatabase() (*candleDatabase, error) {
 			_, err = tx.Exec(ctx, executionMigration)
 			if err == nil {
 				_, err = tx.Exec(ctx, "INSERT INTO schema_migrations VALUES(3)")
+			}
+		}
+	}
+	if err == nil {
+		var exists bool
+		err = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=4)").Scan(&exists)
+		if err == nil && !exists {
+			_, err = tx.Exec(ctx, controlMigration)
+			if err == nil {
+				_, err = tx.Exec(ctx, "INSERT INTO schema_migrations VALUES(4)")
 			}
 		}
 	}

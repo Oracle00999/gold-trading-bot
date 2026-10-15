@@ -110,9 +110,9 @@ history without marking an old heartbeat fresh. Recent deal uploads cover at mos
 200 matching deals over seven broker days, not an all-time account ledger. The
 local event outbox retains up to 50 events; overflow remains in terminal logs.
 
-The dashboard cookie permits reads only. Bridge writes and `/api/bridge/intent`
-require the bearer token. Keep the service private; public dashboard deployment
-needs additional authentication and access controls.
+The telemetry cookie permits reads only. Bridge writes and `/api/bridge/intent`
+require the bearer token. Owner trading controls use a separate authenticated
+session through the private dashboard listener; see below.
 
 ## Testing
 
@@ -153,3 +153,42 @@ from the reference entry. Select the nearest eligible confirmed swing, then the
 next farther distinct swing for TP2. If only one eligible level exists, both positions use it. Skip only if none exists.
 Replay checks the simulated fill; the executor checks the current quote and actual
 fill. A fill violating the minimum invokes incomplete-pair recovery.
+
+## Private trading controls
+
+GoldExecutor **1.105** adds a persistent per-symbol new-entry permission. The
+initial database setting is **off**. Switching off leaves existing positions,
+SL/TP and TP2 profit-lock management running. Switching on waits for a fresh M3
+bar; it does not execute a signal seen before the change. API/control failures
+block new entries. A pair already being submitted may finish opening both legs;
+this switch is not an emergency close button.
+
+The dashboard displays the saved permission and waits for a fresh executor
+heartbeat acknowledging its revision. MT5's local EnableEntries, Algo Trading,
+daily limits and recovery/halt gates still apply. Use the same executor version
+on the server; older versions cannot acknowledge this control.
+
+For owner-only access over Tailscale Serve:
+
+1. Put the exact private HTTPS hostname in `.local/dashboard-host` and the owner's
+   exact Tailscale login in `.local/dashboard-owner` (both gitignored).
+2. Restart the API. The machine API stays on loopback port 8080. A separate
+   dashboard listener runs on **127.0.0.1:8081**.
+3. Run `tailscale serve --bg http://127.0.0.1:8081` and open its private HTTPS URL.
+   Keep Funnel disabled. Never expose port 8081 through public port mapping.
+4. Compile/deploy GoldExecutor 1.105 and refresh the dashboard. Turn Gold on when
+   ready; check the executor confirmation.
+
+The control listener trusts Tailscale Serve's sanitized identity headers, and
+only the configured owner receives an eight-hour Secure/HttpOnly/SameSite session.
+POSTs also require the exact HTTPS Origin and a CSRF token. Direct requests to
+8080 cannot obtain a control session or use control routes, even with forged
+identity headers or the MT5 bearer token. The private listener denies machine
+API routes. As with Tailscale's documented localhost proxy model, **processes on
+the VPS itself are trusted**; this is not isolation against a compromised local
+administrator. See [Serve identity headers](https://tailscale.com/docs/features/tailscale-serve#identity-headers).
+
+Changes use revision checks to reject concurrent stale updates, and save an
+append-only application audit record (`trading_control_audit`) in the same
+transaction. Permission survives API, MT5 and VPS restarts. Test with
+`TEST_POSTGRES=1 go test -race ./...`; control tests use an isolated schema.
