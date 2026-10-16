@@ -25,6 +25,9 @@ var controlMigration string
 //go:embed migrations/005_eurusd.sql
 var euroMigration string
 
+//go:embed migrations/006_usdjpy.sql
+var yenMigration string
+
 type candleDatabase struct{ pool *pgxpool.Pool }
 
 func openDatabase() (*candleDatabase, error) {
@@ -101,6 +104,16 @@ func openDatabase() (*candleDatabase, error) {
 			_, err = tx.Exec(ctx, euroMigration)
 			if err == nil {
 				_, err = tx.Exec(ctx, "INSERT INTO schema_migrations VALUES(5)")
+			}
+		}
+	}
+	if err == nil {
+		var exists bool
+		err = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=6)").Scan(&exists)
+		if err == nil && !exists {
+			_, err = tx.Exec(ctx, yenMigration)
+			if err == nil {
+				_, err = tx.Exec(ctx, "INSERT INTO schema_migrations VALUES(6)")
 			}
 		}
 	}

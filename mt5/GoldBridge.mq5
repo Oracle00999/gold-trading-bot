@@ -1,12 +1,16 @@
 #property strict
-#property version "1.101"
-#property description "Demo-only Gold/EURUSD telemetry bridge. Does not place orders."
+#property version "1.102"
+#property description "Demo-only Gold/EURUSD/USDJPY telemetry bridge. Does not place orders."
 
 input string BridgeURL = "http://127.0.0.1:8080";
 input string BridgeToken = "";
 input string GoldSymbol = "XAUUSDm";
 
-string APIPath() {return GoldSymbol=="EURUSDm"?"/api/pairs/EURUSDm":"/api";}
+string APIPath() {
+   if(GoldSymbol=="EURUSDm") return "/api/pairs/EURUSDm";
+   if(GoldSymbol=="USDJPYm") return "/api/pairs/USDJPYm";
+   return "/api";
+}
 int previous_status = 0;
 
 int candle_status = 0;
@@ -18,7 +22,7 @@ int OnInit()
       Print("GoldBridge requires a demo account.");
       return INIT_FAILED;
    }
-   if(StringLen(BridgeToken) != 64 || (GoldSymbol != "XAUUSDm" && GoldSymbol != "EURUSDm"))
+   if(StringLen(BridgeToken) != 64 || (GoldSymbol != "XAUUSDm" && GoldSymbol != "EURUSDm" && GoldSymbol != "USDJPYm"))
    {
       Print("Set BridgeToken from the Go application's .local/bridge-token file.");
       return INIT_PARAMETERS_INCORRECT;

@@ -34,6 +34,17 @@ func TestEuroBreakoutUsesPips(t *testing.T) {
 		t.Fatal(cfg, err)
 	}
 }
+
+func TestUSDJPYUsesPips(t *testing.T) {
+	cfg, err := strategyConfig(yenSymbol)
+	if err != nil || cfg.StopBuffer != .02 {
+		t.Fatal(cfg, err)
+	}
+	if targetDistance(yenSymbol) != .05 || !supportedSymbol(yenSymbol) {
+		t.Fatal("USDJPY symbol configuration missing")
+	}
+}
+
 func TestSymbolRoutesAreIsolated(t *testing.T) {
 	t.Setenv("DEMO_LOGIN", "123")
 	t.Setenv("DEMO_SERVER", "Demo")
@@ -96,5 +107,26 @@ func TestSymbolRoutesAreIsolated(t *testing.T) {
 	}
 	if w := call("GET", euro+"/execution", ""); !strings.Contains(w.Body.String(), "EURUSDm") {
 		t.Fatal("EUR execution missing")
+	}
+	yen := "/api/pairs/USDJPYm"
+	yenBody := `{"demo":true,"connected":true,"currency":"USD","balance":1000,"equity":1000,"symbol":"USDJPYm","bid":150.1,"ask":150.101,"tick_time_ms":1}`
+	if w := call("POST", yen+"/bridge/snapshot", yenBody); w.Code != 200 {
+		t.Fatal(w.Body.String())
+	}
+	if w := call("POST", euro+"/bridge/snapshot", yenBody); w.Code != 400 {
+		t.Fatal("JPY snapshot accepted by EUR route")
+	}
+	yenBatch := CandleBatch{Demo: true, Symbol: yenSymbol, Timeframe: "M3", CurrentBarTime: 360, Candles: []Candle{{Time: 180, Open: 150.1, Close: 150.1, High: 150.2, Low: 150}}}
+	raw, _ = json.Marshal(yenBatch)
+	if w := call("POST", yen+"/bridge/candles", string(raw)); w.Code != 200 {
+		t.Fatal(w.Body.String())
+	}
+	s.Symbol = yenSymbol
+	raw, _ = json.Marshal(s)
+	if w := call("POST", yen+"/bridge/execution", string(raw)); w.Code != 200 {
+		t.Fatal(w.Body.String())
+	}
+	if w := call("GET", yen+"/execution", ""); !strings.Contains(w.Body.String(), "USDJPYm") {
+		t.Fatal("JPY execution missing")
 	}
 }

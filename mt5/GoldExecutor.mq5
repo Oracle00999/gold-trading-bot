@@ -1,5 +1,5 @@
 #property strict
-#property version "1.107"
+#property version "1.108"
 #property description "Demo-only executor for Go M3 signals. Attach once per demo account."
 #include <Trade/Trade.mqh>
 #include "ExecutionPolicy.mqh"
@@ -18,7 +18,11 @@ const double Lots=0.06, PairRisk=200, DailyLoss=1000;
 ulong Magic1=2601001, Magic2=2601002;
 CTrade trade;
 string prefix,accountPrefix;
-string APIPath() {return TradeSymbol=="EURUSDm"?"/api/pairs/EURUSDm":"/api";}
+string APIPath() {
+ if(TradeSymbol=="EURUSDm") return "/api/pairs/EURUSDm";
+ if(TradeSymbol=="USDJPYm") return "/api/pairs/USDJPYm";
+ return "/api";
+}
 int lockfile=INVALID_HANDLE;
 datetime startupBar=0;
 double intentTP1=0,intentTP2=0;
@@ -43,13 +47,16 @@ bool AccountOK() {
  AccountInfoInteger(ACCOUNT_MARGIN_MODE)==ACCOUNT_MARGIN_MODE_RETAIL_HEDGING;
 }
 int OnInit() {
- if((TradeSymbol!="XAUUSDm" && TradeSymbol!="EURUSDm") || !AccountOK() || _Symbol!=TradeSymbol || StringLen(BridgeToken)!=64 || CommissionPerLot<0 || SlippageAllowance<0) {
-  Print("Requires pinned USD hedging DEMO login, XAUUSDm or EURUSDm chart, bridge token and nonnegative cost assumptions."); return INIT_PARAMETERS_INCORRECT;
+ if((TradeSymbol!="XAUUSDm" && TradeSymbol!="EURUSDm" && TradeSymbol!="USDJPYm") || !AccountOK() || _Symbol!=TradeSymbol || StringLen(BridgeToken)!=64 || CommissionPerLot<0 || SlippageAllowance<0) {
+  Print("Requires pinned USD hedging DEMO login, XAUUSDm, EURUSDm or USDJPYm chart, bridge token and nonnegative cost assumptions."); return INIT_PARAMETERS_INCORRECT;
  }
  accountPrefix=StringFormat("GoldExec.%s.%I64d.",DemoServer,DemoLogin);
- prefix=accountPrefix+(TradeSymbol=="EURUSDm"?"EURUSDm.":"");
+ prefix=accountPrefix+(TradeSymbol=="EURUSDm"?"EURUSDm.":TradeSymbol=="USDJPYm"?"USDJPYm.":"");
  if(TradeSymbol=="EURUSDm") {MinTargetDistance=0.0005;ProfitLockDistance=0.0002;Magic1=2602001;Magic2=2602002;
   if(SlippageAllowance>0.0001) {Print("EURUSD slippage allowance must be at most one pip; use 0.00001.");return INIT_PARAMETERS_INCORRECT;}
+ }
+ if(TradeSymbol=="USDJPYm") {MinTargetDistance=0.05;ProfitLockDistance=0.02;Magic1=2603001;Magic2=2603002;
+  if(SlippageAllowance>0.01) {Print("USDJPY slippage allowance must be at most one pip; use 0.001.");return INIT_PARAMETERS_INCORRECT;}
  }
  lockfile=FileOpen(prefix+"lock",FILE_READ|FILE_WRITE|FILE_BIN); // No FILE_SHARE flags: single terminal instance.
  if(lockfile==INVALID_HANDLE) { Print("Another executor holds this account lock."); return INIT_FAILED; }
@@ -60,7 +67,7 @@ int OnInit() {
  trade.SetDeviationInPoints((ulong)MathCeil(SlippageAllowance/SymbolInfoDouble(TradeSymbol,SYMBOL_POINT)));
  LoadEvents();
  if(!EventSetTimer(1)) return INIT_FAILED;
- Record("started","Executor 1.106 loaded; reconciling broker positions and persistent state.");
+ Record("started","Executor 1.108 loaded; reconciling broker positions and persistent state.");
  Print("Demo executor ready. New entries: ",EnableEntries,"; lots 2 x 0.06; pair risk $200; daily gate $1000.");
  return INIT_SUCCEEDED;
 }
@@ -105,7 +112,7 @@ void ManagePositions() {
   if((buy ? q.bid-lockedStop : lockedStop-q.ask)<=distance) return;
   if(!EnsureProtection(ticket,lockedStop,tp))
    Record("breakeven_pending",trade.ResultRetcodeDescription());
-  else Record("breakeven_done","TP2 stop verified $2 in price beyond actual entry into profit.");
+  else Record("breakeven_done","TP2 stop verified beyond actual entry into profit.");
  }
 }
 
@@ -218,7 +225,8 @@ void TryEntry() {
  // Account-wide gate: no overlap with manual orders or other bots.
  if(PositionsTotal()!=0 || OrdersTotal()!=0) return;
  if((GlobalVariableCheck(accountPrefix+"recovery") && GlobalVariableGet(accountPrefix+"recovery")!=0) ||
-    (GlobalVariableCheck(accountPrefix+"EURUSDm.recovery") && GlobalVariableGet(accountPrefix+"EURUSDm.recovery")!=0)) return;
+    (GlobalVariableCheck(accountPrefix+"EURUSDm.recovery") && GlobalVariableGet(accountPrefix+"EURUSDm.recovery")!=0) ||
+    (GlobalVariableCheck(accountPrefix+"USDJPYm.recovery") && GlobalVariableGet(accountPrefix+"USDJPYm.recovery")!=0)) return;
  datetime current=iTime(TradeSymbol,PERIOD_M3,0);
  if(current<=controlResumeBar || current<=startupBar || TimeCurrent()-current>30 || TimeCurrent()<current) return;
  datetime bar=current-180;
@@ -428,7 +436,7 @@ void Publish() {
  deals+="]";
  string events="[";for(int i=0;i<ArraySize(eventQueue);i++) {if(i>0) events+=",";events+=eventQueue[i];}events+="]";
  double change=AccountInfoDouble(ACCOUNT_EQUITY)-State("baseline"),remaining=State("blocked")!=0?0:MathMax(0,DailyLoss-MathMax(0,-change));
- string body=StringFormat("{\"demo\":true,\"account\":\"%I64d\",\"server\":\"%s\",\"version\":\"1.107\",\"broker_time\":%I64d,\"connected\":%s,\"enabled\":%s,\"halted\":%s,\"daily_blocked\":%s,\"recovering\":%s,\"history_ok\":%s,\"daily_remaining\":%.8f,\"day_equity_change\":%.8f,\"positions\":%s,\"deals\":%s,\"events\":%s}",DemoLogin,Escape(DemoServer),(long)TimeCurrent(),Bool(TerminalInfoInteger(TERMINAL_CONNECTED)),Bool(EnableEntries && TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) && MQLInfoInteger(MQL_TRADE_ALLOWED)),Bool(State("halt")!=0),Bool(State("blocked")!=0),Bool(State("recovery")!=0),Bool(history),remaining,change,positions,deals,events);
+ string body=StringFormat("{\"demo\":true,\"account\":\"%I64d\",\"server\":\"%s\",\"version\":\"1.108\",\"broker_time\":%I64d,\"connected\":%s,\"enabled\":%s,\"halted\":%s,\"daily_blocked\":%s,\"recovering\":%s,\"history_ok\":%s,\"daily_remaining\":%.8f,\"day_equity_change\":%.8f,\"positions\":%s,\"deals\":%s,\"events\":%s}",DemoLogin,Escape(DemoServer),(long)TimeCurrent(),Bool(TerminalInfoInteger(TERMINAL_CONNECTED)),Bool(EnableEntries && TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) && MQLInfoInteger(MQL_TRADE_ALLOWED)),Bool(State("halt")!=0),Bool(State("blocked")!=0),Bool(State("recovery")!=0),Bool(history),remaining,change,positions,deals,events);
  body=StringSubstr(body,0,StringLen(body)-1)+",\"symbol\":\""+TradeSymbol+"\""+StringFormat(",\"control_revision\":%I64d,\"control_enabled\":%s,\"control_ok\":%s}",controlRevision,Bool(controlEnabled),Bool(controlOK));
  char data[],reply[];int size=StringToCharArray(body,data,0,WHOLE_ARRAY,CP_UTF8);if(size<=0) return;ArrayResize(data,size-1);string headers;
  int status=WebRequest("POST",BridgeURL+APIPath()+"/bridge/execution","Content-Type: application/json\r\nAuthorization: Bearer "+BridgeToken+"\r\n",1500,data,reply,headers);

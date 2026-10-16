@@ -196,26 +196,30 @@ append-only application audit record (`trading_control_audit`) in the same
 transaction. Permission survives API, MT5 and VPS restarts. Test with
 `TEST_POSTGRES=1 go test -race ./...`; control tests use an isolated schema.
 
-## EURUSD
+## EURUSD and USDJPY
 
-The pair selector switches between Gold (`XAUUSDm`) and EURUSD (`EURUSDm`),
-including their live candles, signals, execution history and owner-only toggle.
-EURUSD starts off in the database until its executor is ready and it is enabled.
-Gold's existing state and permission are preserved by migration 005.
+The pair selector switches between Gold (`XAUUSDm`), EURUSD (`EURUSDm`) and
+USDJPY (`USDJPYm`), including their live candles, signals, execution history and
+owner-only toggle. New pairs start off in the database until their executor is
+ready and the owner enables them. Gold's existing state and permission are
+preserved by migrations 005 and 006.
 
-Both symbols use closed M3 breakouts, confirmed swing stops and two structural
+All three symbols use closed M3 breakouts, confirmed swing stops and two structural
 targets; a signal is skipped when a second suitable target is unavailable. EURUSD's
 accepted demo settings are: 2-pip stop buffer (0.0002), 5-pip minimum target
 (0.0005), 2-pip TP2 profit lock (0.0002), and two 0.06-lot positions. Its slippage
-allowance is 0.00001. These starting settings have not been profitability-tested.
-Gold retains its existing price distances.
+allowance is 0.00001. USDJPY starts with the equivalent 2-pip stop buffer (0.02),
+5-pip minimum target (0.05), 2-pip TP2 profit lock (0.02), two 0.06-lot positions
+and 0.001 slippage allowance. These starting settings have not been
+profitability-tested. Gold retains its existing price distances.
 
-Compile GoldBridge 1.101 and GoldExecutor 1.107. Attach one of each on separate
-M3 charts per symbol, setting `GoldSymbol=EURUSDm` on the EUR bridge and
-`TradeSymbol=EURUSDm`, `SlippageAllowance=0.00001` on its executor. Keep the same
-account pin and bridge URL/token. Do not run another terminal for this account.
-The EUR endpoints are under `/api/pairs/EURUSDm`; existing Gold endpoints remain
-under `/api`. The executor routes itself based on its TradeSymbol.
+Compile GoldBridge 1.102 and GoldExecutor 1.108. Attach one of each on separate
+M3 charts per symbol, setting `GoldSymbol` and `TradeSymbol` to the matching
+symbol. Use `SlippageAllowance=0.00001` for EURUSD and `0.001` for USDJPY. Keep
+the same account pin and bridge URL/token. Do not run another terminal for this
+account. EURUSD and USDJPY endpoints are under `/api/pairs/EURUSDm` and
+`/api/pairs/USDJPYm`; existing Gold endpoints remain under `/api`. The executor
+routes itself based on its TradeSymbol.
 
 Magic numbers, recovery state, event outboxes, execution history and controls
 are isolated per symbol. The daily equity baseline and $1,000 daily guard are

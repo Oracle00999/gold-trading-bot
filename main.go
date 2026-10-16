@@ -80,7 +80,10 @@ func router(token string, databases ...*candleDatabase) *gin.Engine {
 	api := r.Group("/api")
 	api.Use(func(c *gin.Context) {
 		cookie, _ := c.Cookie("dashboard")
-		readPath := strings.Replace(c.Request.URL.Path, "/api/pairs/EURUSDm/", "/api/", 1)
+		readPath := c.Request.URL.Path
+		for _, symbol := range []string{euroSymbol, yenSymbol} {
+			readPath = strings.Replace(readPath, "/api/pairs/"+symbol+"/", "/api/", 1)
+		}
 		if c.Request.Method == http.MethodGet && (readPath == "/api/status" || readPath == "/api/candles" || readPath == "/api/strategy" || readPath == "/api/execution") && subtle.ConstantTimeCompare([]byte(cookie), []byte(readToken)) == 1 {
 			c.Next()
 			return
@@ -101,6 +104,11 @@ func router(token string, databases ...*candleDatabase) *gin.Engine {
 	candleRoutes(euroAPI, db, euroSymbol)
 	executionRoutes(euroAPI, db, euroSymbol)
 	snapshotRoutes(euroAPI, euroSymbol)
+	yenAPI := api.Group("/pairs/USDJPYm")
+	controlRoutes(r, yenAPI, db, controlAuth, yenSymbol)
+	candleRoutes(yenAPI, db, yenSymbol)
+	executionRoutes(yenAPI, db, yenSymbol)
+	snapshotRoutes(yenAPI, yenSymbol)
 
 	return r
 }
