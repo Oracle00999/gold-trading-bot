@@ -106,6 +106,10 @@ State persists in MT5 global variables under `GoldExec.<server>.<login>.`. After
 failed attempt, disable entries and reconcile positions, pending orders, and deals.
 Only after confirming the outcome, reset `recovery` and `halt` to zero. Preserve
 `attempt` and daily state. Do not reset recovery with unresolved bot orders.
+For a confirmed flat demo account, a local per-symbol recovery approval file can
+perform that reset only when there are no broker positions or orders and both
+recorded legs are fully closed. The executor deletes the approval file after a
+successful reset and records the action in its event history.
 
 The executor reports every five seconds; after 15 seconds its heartbeat is stale.
 GoldBridge freshness is separate. PostgreSQL deduplicates deals/events and restores
@@ -213,7 +217,7 @@ allowance is 0.00001. USDJPY starts with the equivalent 2-pip stop buffer (0.02)
 and 0.001 slippage allowance. These starting settings have not been
 profitability-tested. Gold retains its existing price distances.
 
-Compile GoldBridge 1.102 and GoldExecutor 1.108. Attach one of each on separate
+Compile GoldBridge 1.102 and GoldExecutor 1.109. Attach one of each on separate
 M3 charts per symbol, setting `GoldSymbol` and `TradeSymbol` to the matching
 symbol. Use `SlippageAllowance=0.00001` for EURUSD and `0.001` for USDJPY. Keep
 the same account pin and bridge URL/token. Do not run another terminal for this
