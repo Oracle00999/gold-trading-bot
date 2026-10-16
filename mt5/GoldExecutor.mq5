@@ -1,5 +1,5 @@
 #property strict
-#property version "1.106"
+#property version "1.107"
 #property description "Demo-only executor for Go M3 signals. Attach once per demo account."
 #include <Trade/Trade.mqh>
 #include "ExecutionPolicy.mqh"
@@ -12,6 +12,7 @@ input bool EnableEntries=false;
 input double CommissionPerLot=0; // Estimated round-trip USD/lot.
 input double SlippageAllowance=0.05; // Price units, included in risk estimate.
 input string TradeSymbol="XAUUSDm";
+input double MinPairRewardRisk=1.0; // Combined TP1 + TP2 net reward / full two-leg stop loss.
 double MinTargetDistance=5.0,ProfitLockDistance=2.0;
 const double Lots=0.06, PairRisk=200, DailyLoss=1000;
 ulong Magic1=2601001, Magic2=2601002;
@@ -126,11 +127,21 @@ bool Estimate(ENUM_ORDER_TYPE side,double stop,double &risk,double &entry) {
  if((buy?q.bid-stop:stop-q.ask)<=distance || (entry-stop)*d<=0) return Reject(StringFormat("Stop %.3f invalid for quote %.3f/%.3f; minimum distance %.3f",stop,q.bid,q.ask,distance));
  if((buy?intentTP1-q.bid:q.ask-intentTP1)<=distance) return Reject(StringFormat("TP1 %.3f too close to quote; minimum distance %.3f",intentTP1,distance));
  double loss=0,margin=0;
- if(!OrderCalcProfit(side,TradeSymbol,Lots,entry+d*SlippageAllowance,stop-d*SlippageAllowance,loss) ||
+ if(MinPairRewardRisk<=0 || !MathIsValidNumber(MinPairRewardRisk)) return Reject("Minimum pair reward/risk must be positive");
+ double assumedEntry=entry+d*SlippageAllowance;
+ if(!OrderCalcProfit(side,TradeSymbol,Lots,assumedEntry,stop-d*SlippageAllowance,loss) ||
     !OrderCalcMargin(side,TradeSymbol,Lots,entry,margin)) return Reject(StringFormat("Broker risk/margin calculation failed: error %d",GetLastError()));
  risk=-2*loss+2*Lots*CommissionPerLot;
+ double ticksize=SymbolInfoDouble(TradeSymbol,SYMBOL_TRADE_TICK_SIZE);
+ if(ticksize<=0) return Reject("Invalid broker tick size");
+ double tp1=MathRound(intentTP1/ticksize)*ticksize, tp2=MathRound(intentTP2/ticksize)*ticksize;
+ double reward1=0,reward2=0;
+ if(!OrderCalcProfit(side,TradeSymbol,Lots,assumedEntry,tp1,reward1) ||
+    !OrderCalcProfit(side,TradeSymbol,Lots,assumedEntry,tp2,reward2)) return Reject(StringFormat("Broker target reward calculation failed: error %d",GetLastError()));
+ double reward=reward1+reward2-2*Lots*CommissionPerLot;
  double remaining=DailyLoss-MathMax(0,State("baseline")-AccountInfoDouble(ACCOUNT_EQUITY));
  if(risk<=0 || risk>PairRisk) return Reject(StringFormat("Estimated pair loss $%.2f exceeds $%.2f limit or is invalid",risk,PairRisk));
+ if(!PairRewardRiskPass(reward,risk,MinPairRewardRisk)) return Reject(StringFormat("Combined net targets $%.2f are below %.2fx full pair risk $%.2f",reward,MinPairRewardRisk,risk));
  if(risk>remaining) return Reject(StringFormat("Estimated loss $%.2f exceeds remaining daily budget $%.2f",risk,remaining));
  double available=AccountInfoDouble(ACCOUNT_MARGIN_FREE),required=2*margin+risk;
  if(available<required) return Reject(StringFormat("Free margin $%.2f below conservative requirement $%.2f",available,required));
