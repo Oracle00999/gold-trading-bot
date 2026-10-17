@@ -129,6 +129,9 @@ func TestControlPostgres(t *testing.T) {
 	if _, err = pool.Exec(ctx, yenMigration); err != nil {
 		t.Fatal(err)
 	}
+	if _, err = pool.Exec(ctx, bitcoinMigration); err != nil {
+		t.Fatal(err)
+	}
 	initial, err := db.tradingControl(ctx)
 	if err != nil || initial.Enabled || initial.Revision != 1 {
 		t.Fatal(initial, err)
@@ -207,21 +210,28 @@ func TestControlPostgres(t *testing.T) {
 	if err = other.changeControl(ctx, true, 1, "owner@example.com", yenSymbol); err != nil {
 		t.Fatal(err)
 	}
+	bitcoin, err := other.tradingControl(ctx, bitcoinSymbol)
+	if err != nil || bitcoin.Enabled || bitcoin.Revision != 1 {
+		t.Fatal("BTC defaults not isolated", bitcoin, err)
+	}
+	if err = other.changeControl(ctx, true, 1, "owner@example.com", bitcoinSymbol); err != nil {
+		t.Fatal(err)
+	}
 	// Identical event IDs across symbols must not erase either event.
-	for _, symbol := range []string{goldSymbol, euroSymbol, yenSymbol} {
+	for _, symbol := range []string{goldSymbol, euroSymbol, yenSymbol, bitcoinSymbol} {
 		snapshot := ExecutionSnapshot{Symbol: symbol, Account: "isolation", Server: "demo", BrokerTime: 1, Events: []ExecutionEvent{{ID: "shared", Time: 1, Code: symbol}}}
 		if err = other.saveExecution(ctx, snapshot, time.Now()); err != nil {
 			t.Fatal(err)
 		}
 	}
-	for _, symbol := range []string{goldSymbol, euroSymbol, yenSymbol} {
+	for _, symbol := range []string{goldSymbol, euroSymbol, yenSymbol, bitcoinSymbol} {
 		var view executionView
 		if err = other.executionHistory(ctx, &view, executionPin{Account: "isolation", Server: "demo"}, symbol); err != nil || len(view.Events) != 1 || view.Events[0].Code != symbol {
 			t.Fatal("history crossed symbols", view, err)
 		}
 	}
 	var snapshots int
-	if err = pool.QueryRow(ctx, "SELECT count(*) FROM execution_snapshots WHERE account='isolation'").Scan(&snapshots); err != nil || snapshots != 3 {
+	if err = pool.QueryRow(ctx, "SELECT count(*) FROM execution_snapshots WHERE account='isolation'").Scan(&snapshots); err != nil || snapshots != 4 {
 		t.Fatal("snapshot overwritten", snapshots, err)
 	}
 	saved, err = other.tradingControl(ctx)

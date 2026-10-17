@@ -28,6 +28,9 @@ var euroMigration string
 //go:embed migrations/006_usdjpy.sql
 var yenMigration string
 
+//go:embed migrations/007_btcusd.sql
+var bitcoinMigration string
+
 type candleDatabase struct{ pool *pgxpool.Pool }
 
 func openDatabase() (*candleDatabase, error) {
@@ -114,6 +117,16 @@ func openDatabase() (*candleDatabase, error) {
 			_, err = tx.Exec(ctx, yenMigration)
 			if err == nil {
 				_, err = tx.Exec(ctx, "INSERT INTO schema_migrations VALUES(6)")
+			}
+		}
+	}
+	if err == nil {
+		var exists bool
+		err = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=7)").Scan(&exists)
+		if err == nil && !exists {
+			_, err = tx.Exec(ctx, bitcoinMigration)
+			if err == nil {
+				_, err = tx.Exec(ctx, "INSERT INTO schema_migrations VALUES(7)")
 			}
 		}
 	}

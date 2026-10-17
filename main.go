@@ -81,7 +81,7 @@ func router(token string, databases ...*candleDatabase) *gin.Engine {
 	api.Use(func(c *gin.Context) {
 		cookie, _ := c.Cookie("dashboard")
 		readPath := c.Request.URL.Path
-		for _, symbol := range []string{euroSymbol, yenSymbol} {
+		for _, symbol := range []string{euroSymbol, yenSymbol, bitcoinSymbol} {
 			readPath = strings.Replace(readPath, "/api/pairs/"+symbol+"/", "/api/", 1)
 		}
 		if c.Request.Method == http.MethodGet && (readPath == "/api/status" || readPath == "/api/candles" || readPath == "/api/strategy" || readPath == "/api/execution") && subtle.ConstantTimeCompare([]byte(cookie), []byte(readToken)) == 1 {
@@ -109,6 +109,11 @@ func router(token string, databases ...*candleDatabase) *gin.Engine {
 	candleRoutes(yenAPI, db, yenSymbol)
 	executionRoutes(yenAPI, db, yenSymbol)
 	snapshotRoutes(yenAPI, yenSymbol)
+	bitcoinAPI := api.Group("/pairs/BTCUSDm")
+	controlRoutes(r, bitcoinAPI, db, controlAuth, bitcoinSymbol)
+	candleRoutes(bitcoinAPI, db, bitcoinSymbol)
+	executionRoutes(bitcoinAPI, db, bitcoinSymbol)
+	snapshotRoutes(bitcoinAPI, bitcoinSymbol)
 
 	return r
 }

@@ -200,13 +200,13 @@ append-only application audit record (`trading_control_audit`) in the same
 transaction. Permission survives API, MT5 and VPS restarts. Test with
 `TEST_POSTGRES=1 go test -race ./...`; control tests use an isolated schema.
 
-## EURUSD and USDJPY
+## EURUSD, USDJPY and BTCUSD
 
-The pair selector switches between Gold (`XAUUSDm`), EURUSD (`EURUSDm`) and
-USDJPY (`USDJPYm`), including their live candles, signals, execution history and
-owner-only toggle. New pairs start off in the database until their executor is
-ready and the owner enables them. Gold's existing state and permission are
-preserved by migrations 005 and 006.
+The pair selector switches between Gold (`XAUUSDm`), EURUSD (`EURUSDm`),
+USDJPY (`USDJPYm`) and Bitcoin (`BTCUSDm`), including their live candles,
+signals, execution history and owner-only toggle. New pairs start off in the
+database until their executor is ready and the owner enables them. Gold's
+existing state and permission are preserved by migrations 005 through 007.
 
 All three symbols use closed M3 breakouts, confirmed swing stops and two structural
 targets; a signal is skipped when a second suitable target is unavailable. EURUSD's
@@ -215,15 +215,19 @@ accepted demo settings are: 2-pip stop buffer (0.0002), 5-pip minimum target
 allowance is 0.00001. USDJPY starts with the equivalent 2-pip stop buffer (0.02),
 5-pip minimum target (0.05), 2-pip TP2 profit lock (0.02), two 0.06-lot positions
 and 0.001 slippage allowance. These starting settings have not been
-profitability-tested. Gold retains its existing price distances.
+profitability-tested. BTCUSD starts disabled with a $100 stop buffer, $250 minimum
+target, $100 TP2 profit lock, two 0.01-lot positions, a $100 pair-risk cap and
+$1.00 slippage allowance. Confirm its exact suffix, tick value and volume rules
+in the broker terminal before enabling it. Gold retains its existing price
+distances.
 
-Compile GoldBridge 1.102 and GoldExecutor 1.109. Attach one of each on separate
+Compile GoldBridge 1.103 and GoldExecutor 1.110. Attach one of each on separate
 M3 charts per symbol, setting `GoldSymbol` and `TradeSymbol` to the matching
-symbol. Use `SlippageAllowance=0.00001` for EURUSD and `0.001` for USDJPY. Keep
-the same account pin and bridge URL/token. Do not run another terminal for this
-account. EURUSD and USDJPY endpoints are under `/api/pairs/EURUSDm` and
-`/api/pairs/USDJPYm`; existing Gold endpoints remain under `/api`. The executor
-routes itself based on its TradeSymbol.
+symbol. Use `SlippageAllowance=0.00001` for EURUSD, `0.001` for USDJPY and `1.00`
+for BTCUSD. Keep the same account pin and bridge URL/token. Do not run another
+terminal for this account. Pair endpoints are under `/api/pairs/<symbol>`;
+existing Gold endpoints remain under `/api`. The executor routes itself based on
+its TradeSymbol.
 
 Magic numbers, recovery state, event outboxes, execution history and controls
 are isolated per symbol. The daily equity baseline and $1,000 daily guard are

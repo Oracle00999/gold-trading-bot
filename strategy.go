@@ -39,6 +39,9 @@ func strategyConfig(symbols ...string) (StrategyConfig, error) {
 	if selectedSymbol(symbols) == yenSymbol {
 		c.StopBuffer = .02
 	}
+	if selectedSymbol(symbols) == bitcoinSymbol {
+		c.StopBuffer = 100
+	}
 	return c, nil
 }
 

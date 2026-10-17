@@ -45,6 +45,16 @@ func TestUSDJPYUsesPips(t *testing.T) {
 	}
 }
 
+func TestBitcoinUsesDedicatedRiskDistances(t *testing.T) {
+	cfg, err := strategyConfig(bitcoinSymbol)
+	if err != nil || cfg.StopBuffer != 100 {
+		t.Fatal(cfg, err)
+	}
+	if targetDistance(bitcoinSymbol) != 250 || !supportedSymbol(bitcoinSymbol) {
+		t.Fatal("BTCUSD symbol configuration missing")
+	}
+}
+
 func TestSymbolRoutesAreIsolated(t *testing.T) {
 	t.Setenv("DEMO_LOGIN", "123")
 	t.Setenv("DEMO_SERVER", "Demo")
@@ -128,5 +138,26 @@ func TestSymbolRoutesAreIsolated(t *testing.T) {
 	}
 	if w := call("GET", yen+"/execution", ""); !strings.Contains(w.Body.String(), "USDJPYm") {
 		t.Fatal("JPY execution missing")
+	}
+	bitcoin := "/api/pairs/BTCUSDm"
+	bitcoinBody := `{"demo":true,"connected":true,"currency":"USD","balance":1000,"equity":1000,"symbol":"BTCUSDm","bid":100000,"ask":100001,"tick_time_ms":1}`
+	if w := call("POST", bitcoin+"/bridge/snapshot", bitcoinBody); w.Code != 200 {
+		t.Fatal(w.Body.String())
+	}
+	if w := call("POST", yen+"/bridge/snapshot", bitcoinBody); w.Code != 400 {
+		t.Fatal("BTC snapshot accepted by JPY route")
+	}
+	bitcoinBatch := CandleBatch{Demo: true, Symbol: bitcoinSymbol, Timeframe: "M3", CurrentBarTime: 360, Candles: []Candle{{Time: 180, Open: 100000, Close: 100000, High: 100100, Low: 99900}}}
+	raw, _ = json.Marshal(bitcoinBatch)
+	if w := call("POST", bitcoin+"/bridge/candles", string(raw)); w.Code != 200 {
+		t.Fatal(w.Body.String())
+	}
+	s.Symbol = bitcoinSymbol
+	raw, _ = json.Marshal(s)
+	if w := call("POST", bitcoin+"/bridge/execution", string(raw)); w.Code != 200 {
+		t.Fatal(w.Body.String())
+	}
+	if w := call("GET", bitcoin+"/execution", ""); !strings.Contains(w.Body.String(), "BTCUSDm") {
+		t.Fatal("BTC execution missing")
 	}
 }
