@@ -1,5 +1,5 @@
 #property strict
-#property version "1.110"
+#property version "1.111"
 #property description "Demo-only executor for Go M3 signals. Attach once per demo account."
 #include <Trade/Trade.mqh>
 #include "ExecutionPolicy.mqh"
@@ -15,6 +15,10 @@ input string TradeSymbol="XAUUSDm";
 input double MinPairRewardRisk=1.0; // Combined TP1 + TP2 net reward / full two-leg stop loss.
 double MinTargetDistance=5.0,ProfitLockDistance=2.0;
 double Lots=0.06, PairRisk=200;
+// Protect a modest gain before structural TP1/TP2. These are account-currency
+// amounts, so they mean the same thing for Gold, forex, and BTC.
+const double EarlyProfitTriggerUSD=3.0;
+const double EarlyProfitLockUSD=2.0;
 const double DailyLoss=1000;
 ulong Magic1=2601001, Magic2=2601002;
 CTrade trade;
@@ -72,7 +76,7 @@ int OnInit() {
  trade.SetDeviationInPoints((ulong)MathCeil(SlippageAllowance/SymbolInfoDouble(TradeSymbol,SYMBOL_POINT)));
  LoadEvents();
  if(!EventSetTimer(1)) return INIT_FAILED;
- Record("started","Executor 1.110 loaded; reconciling broker positions and persistent state.");
+ Record("started","Executor 1.111 loaded; reconciling broker positions and persistent state.");
  Print("Demo executor ready. New entries: ",EnableEntries,"; lots 2 x ",Lots,"; pair risk $",PairRisk,"; daily gate $1000.");
  return INIT_SUCCEEDED;
 }
@@ -140,6 +144,55 @@ void ManagePositions() {
   if(!EnsureProtection(ticket,lockedStop,tp))
    Record("breakeven_pending",trade.ResultRetcodeDescription());
   else Record("breakeven_done","TP2 stop verified beyond actual entry into profit.");
+ }
+}
+
+// Return the nearest broker-valid stop that preserves EarlyProfitLockUSD after
+// the estimated commission. The calculation uses the broker's contract rules
+// instead of assuming that a price move has the same dollar value for every
+// symbol.
+bool EarlyProfitStop(bool buy,double entry,double volume,double swap,MqlTick &q,double &lockedStop) {
+ double ticksize=SymbolInfoDouble(TradeSymbol,SYMBOL_TRADE_TICK_SIZE);
+ double point=SymbolInfoDouble(TradeSymbol,SYMBOL_POINT);
+ if(ticksize<=0 || point<=0 || volume<=0) return false;
+ double distance=MathMax(SymbolInfoInteger(TradeSymbol,SYMBOL_TRADE_STOPS_LEVEL),SymbolInfoInteger(TradeSymbol,SYMBOL_TRADE_FREEZE_LEVEL))*point;
+ double low=buy?entry:q.ask+distance;
+ double high=buy?q.bid-distance:entry;
+ if(high<=low) return false;
+ ENUM_ORDER_TYPE side=buy?ORDER_TYPE_BUY:ORDER_TYPE_SELL;
+ double requiredGross=EarlyProfitLockUSD+volume*CommissionPerLot-swap;
+ double availableProfit=0;
+ double executablePrice=buy?high:low;
+ if(!OrderCalcProfit(side,TradeSymbol,volume,entry,executablePrice,availableProfit) || availableProfit+0.00000001<requiredGross) return false;
+ for(int i=0;i<48;i++) {
+  double mid=(low+high)/2.0,profit=0;
+  if(!OrderCalcProfit(side,TradeSymbol,volume,entry,mid,profit)) return false;
+  if(buy) { if(profit>=requiredGross) high=mid; else low=mid; }
+  else { if(profit>=requiredGross) low=mid; else high=mid; }
+ }
+ double candidate=buy?MathCeil(high/ticksize)*ticksize:MathFloor(low/ticksize)*ticksize;
+ candidate=NormalizeDouble(candidate,(int)SymbolInfoInteger(TradeSymbol,SYMBOL_DIGITS));
+ if((buy && candidate>q.bid-distance) || (!buy && candidate<q.ask+distance)) return false;
+ double verifiedProfit=0;
+ if(!OrderCalcProfit(side,TradeSymbol,volume,entry,candidate,verifiedProfit) || verifiedProfit+swap-volume*CommissionPerLot+0.00000001<EarlyProfitLockUSD) return false;
+ lockedStop=candidate;
+ return true;
+}
+
+void ManageEarlyProfitProtection() {
+ for(int i=PositionsTotal()-1;i>=0;i--) {
+  ulong ticket=PositionGetTicket(i);
+  if(!Owned()) continue;
+  double floating=PositionGetDouble(POSITION_PROFIT)+PositionGetDouble(POSITION_SWAP);
+  if(floating+0.00000001<EarlyProfitTriggerUSD) continue;
+  bool buy=PositionGetInteger(POSITION_TYPE)==POSITION_TYPE_BUY;
+  double entry=PositionGetDouble(POSITION_PRICE_OPEN),volume=PositionGetDouble(POSITION_VOLUME),swap=PositionGetDouble(POSITION_SWAP);
+  double sl=PositionGetDouble(POSITION_SL),tp=PositionGetDouble(POSITION_TP),lockedStop=0;
+  MqlTick q; if(!SymbolInfoTick(TradeSymbol,q) || !EarlyProfitStop(buy,entry,volume,swap,q,lockedStop)) continue;
+  if((buy && sl>=lockedStop) || (!buy && sl>0 && sl<=lockedStop)) continue;
+  if(EnsureProtection(ticket,lockedStop,tp))
+   Record("early_profit_lock",StringFormat("Floating profit reached $%.2f; stop now protects at least $%.2f estimated net profit.",floating,EarlyProfitLockUSD));
+  else Record("early_profit_lock_pending",trade.ResultRetcodeDescription());
  }
 }
 
@@ -235,6 +288,7 @@ void OnTimer() {
  if(!storageOK) return;
  ReconcilePartial();
  RecoverIdentifiers();
+ ManageEarlyProfitProtection(); // Protect either leg at +$3 before its structural target is reached.
  ManagePositions(); // Keep managing existing TP2 even when new entries are disabled.
  ApprovedRecoveryReset();
  RefreshControl();
