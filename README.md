@@ -221,7 +221,7 @@ $1.00 slippage allowance. Confirm its exact suffix, tick value and volume rules
 in the broker terminal before enabling it. Gold retains its existing price
 distances.
 
-Compile GoldBridge 1.103 and GoldExecutor 1.110. Attach one of each on separate
+Compile GoldBridge 1.103 and GoldExecutor 1.111. Attach one of each on separate
 M3 charts per symbol, setting `GoldSymbol` and `TradeSymbol` to the matching
 symbol. Use `SlippageAllowance=0.00001` for EURUSD, `0.001` for USDJPY and `1.00`
 for BTCUSD. Keep the same account pin and bridge URL/token. Do not run another
