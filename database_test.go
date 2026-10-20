@@ -88,7 +88,7 @@ func TestExecutionPersistence(t *testing.T) {
 	defer db.pool.Exec(ctx, "DELETE FROM execution_events WHERE account=$1", account)
 	s := ExecutionSnapshot{Account: account, Server: "test", BrokerTime: 1000, Deals: []ExecutionDeal{{Ticket: "1", Time: 999, Net: 12}}, Events: []ExecutionEvent{{ID: "1", Time: 999, Code: "test"}}}
 	for i := 0; i < 2; i++ {
-		if err = db.saveExecution(ctx, s, time.Now()); err != nil {
+		if _, err = db.saveExecution(ctx, s, time.Now()); err != nil {
 			t.Fatal(err)
 		}
 	}

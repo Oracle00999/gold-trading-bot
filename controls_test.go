@@ -220,7 +220,7 @@ func TestControlPostgres(t *testing.T) {
 	// Identical event IDs across symbols must not erase either event.
 	for _, symbol := range []string{goldSymbol, euroSymbol, yenSymbol, bitcoinSymbol} {
 		snapshot := ExecutionSnapshot{Symbol: symbol, Account: "isolation", Server: "demo", BrokerTime: 1, Events: []ExecutionEvent{{ID: "shared", Time: 1, Code: symbol}}}
-		if err = other.saveExecution(ctx, snapshot, time.Now()); err != nil {
+		if _, err = other.saveExecution(ctx, snapshot, time.Now()); err != nil {
 			t.Fatal(err)
 		}
 	}

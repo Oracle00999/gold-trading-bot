@@ -46,6 +46,24 @@ read-only session. The app binds to loopback; PostgreSQL binds to `127.0.0.1:554
 The bridge token is generated in `.local/bridge-token`. Never commit `.local`,
 credentials, MT5 presets, database dumps, or raw account exports.
 
+## Telegram trade notifications
+
+Telegram is optional and sends outbound notifications only; it does not accept
+trading commands. It sends a message when a pair opens, when early profit is
+locked, and for daily-limit, recovery, or halt events. First create a bot with
+[@BotFather](https://t.me/BotFather), open the new bot and press **Start**, then
+obtain the private chat ID. On the VPS run:
+
+```sh
+python3 scripts/setup-telegram.py
+sudo systemctl restart gold-bot
+```
+
+The helper stores the bot token and chat ID in gitignored `.local/telegram.env`
+with owner-only permissions. The API sends messages through Telegram's HTTPS
+`sendMessage` endpoint and retries temporary delivery failures; MT5 execution is
+never delayed by a Telegram request.
+
 ## MT5 setup
 
 1. Copy `mt5/GoldBridge.mq5`, `mt5/GoldExecutor.mq5`, and `mt5/ExecutionPolicy.mqh`

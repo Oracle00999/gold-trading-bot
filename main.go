@@ -47,6 +47,10 @@ func router(token string, databases ...*candleDatabase) *gin.Engine {
 	if len(databases) > 0 {
 		db = databases[0]
 	}
+	return routerWithNotifier(token, db, nil)
+}
+
+func routerWithNotifier(token string, db *candleDatabase, notifier executionNotifier) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Recovery())
 	// Allow loopback and one explicitly configured private HTTPS hostname.
@@ -97,22 +101,22 @@ func router(token string, databases ...*candleDatabase) *gin.Engine {
 	})
 	controlRoutes(r, api, db, controlAuth)
 	candleRoutes(api, db)
-	executionRoutes(api, db)
+	executionRoutes(api, db, notifier)
 	snapshotRoutes(api, goldSymbol)
 	euroAPI := api.Group("/pairs/EURUSDm")
 	controlRoutes(r, euroAPI, db, controlAuth, euroSymbol)
 	candleRoutes(euroAPI, db, euroSymbol)
-	executionRoutes(euroAPI, db, euroSymbol)
+	executionRoutes(euroAPI, db, notifier, euroSymbol)
 	snapshotRoutes(euroAPI, euroSymbol)
 	yenAPI := api.Group("/pairs/USDJPYm")
 	controlRoutes(r, yenAPI, db, controlAuth, yenSymbol)
 	candleRoutes(yenAPI, db, yenSymbol)
-	executionRoutes(yenAPI, db, yenSymbol)
+	executionRoutes(yenAPI, db, notifier, yenSymbol)
 	snapshotRoutes(yenAPI, yenSymbol)
 	bitcoinAPI := api.Group("/pairs/BTCUSDm")
 	controlRoutes(r, bitcoinAPI, db, controlAuth, bitcoinSymbol)
 	candleRoutes(bitcoinAPI, db, bitcoinSymbol)
-	executionRoutes(bitcoinAPI, db, bitcoinSymbol)
+	executionRoutes(bitcoinAPI, db, notifier, bitcoinSymbol)
 	snapshotRoutes(bitcoinAPI, bitcoinSymbol)
 
 	return r
@@ -175,7 +179,17 @@ func main() {
 	}
 	defer db.pool.Close()
 	gin.SetMode(gin.ReleaseMode)
-	handler := router(token, db)
+	notifier, err := loadTelegramNotifier(".local/telegram.env")
+	if err != nil {
+		log.Printf("Telegram notifications disabled: %v", err)
+	}
+	var executionNotifications executionNotifier
+	if notifier != nil {
+		defer notifier.Close()
+		log.Print("Telegram trade notifications enabled")
+		executionNotifications = notifier
+	}
+	handler := routerWithNotifier(token, db, executionNotifications)
 	privateServer := &http.Server{Addr: "127.0.0.1:8081", Handler: privateDashboardHandler(handler), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
 	server := &http.Server{Addr: "127.0.0.1:8080", Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

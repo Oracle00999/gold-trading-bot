@@ -126,7 +126,7 @@ func executionState(s *ExecutionSnapshot, received, timeNow time.Time) string {
 	}
 	return "ready"
 }
-func executionRoutes(api *gin.RouterGroup, db *candleDatabase, symbols ...string) {
+func executionRoutes(api *gin.RouterGroup, db *candleDatabase, notifier executionNotifier, symbols ...string) {
 	symbol := selectedSymbol(symbols)
 	pin, _ := loadExecutionPin() // Invalid/missing configuration rejects all execution uploads.
 	var mu sync.Mutex
@@ -168,8 +168,11 @@ func executionRoutes(api *gin.RouterGroup, db *candleDatabase, symbols ...string
 			return
 		}
 		now := time.Now()
+		newEvents := []ExecutionEvent{}
 		if db != nil {
-			if err := db.saveExecution(c.Request.Context(), s, now); err != nil {
+			var err error
+			newEvents, err = db.saveExecution(c.Request.Context(), s, now)
+			if err != nil {
 				c.JSON(503, gin.H{"error": "execution storage unavailable"})
 				return
 			}
@@ -199,6 +202,9 @@ func executionRoutes(api *gin.RouterGroup, db *candleDatabase, symbols ...string
 			}
 			if !found {
 				v.Events = append(v.Events, e)
+				if db == nil {
+					newEvents = append(newEvents, e)
+				}
 			}
 		}
 		if len(v.Deals) > 200 {
@@ -206,6 +212,9 @@ func executionRoutes(api *gin.RouterGroup, db *candleDatabase, symbols ...string
 		}
 		if len(v.Events) > 50 {
 			v.Events = v.Events[len(v.Events)-50:]
+		}
+		if notifier != nil && len(newEvents) > 0 {
+			notifier.Notify(s, newEvents)
 		}
 		c.JSON(200, gin.H{"accepted": true})
 	})
@@ -222,12 +231,12 @@ func executionRoutes(api *gin.RouterGroup, db *candleDatabase, symbols ...string
 		c.JSON(200, v)
 	})
 }
-func (db *candleDatabase) saveExecution(ctx context.Context, s ExecutionSnapshot, received time.Time) error {
+func (db *candleDatabase) saveExecution(ctx context.Context, s ExecutionSnapshot, received time.Time) ([]ExecutionEvent, error) {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	tx, err := db.pool.Begin(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer tx.Rollback(ctx)
 	if s.Symbol == "" {
@@ -235,27 +244,34 @@ func (db *candleDatabase) saveExecution(ctx context.Context, s ExecutionSnapshot
 	}
 	raw, err := json.Marshal(s)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO execution_snapshots(account,server,payload,received_at,symbol) VALUES($1,$2,$3,$4,$5) ON CONFLICT(account,server,symbol) DO UPDATE SET payload=EXCLUDED.payload,received_at=EXCLUDED.received_at`, s.Account, s.Server, raw, received, s.Symbol)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	for _, d := range s.Deals {
 		raw, _ = json.Marshal(d)
 		_, err = tx.Exec(ctx, `INSERT INTO execution_deals(account,server,ticket,broker_time,payload,symbol) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING`, s.Account, s.Server, d.Ticket, d.Time, raw, s.Symbol)
 		if err != nil {
-			return err
+			return nil, err
 		}
 	}
+	newEvents := []ExecutionEvent{}
 	for _, e := range s.Events {
 		raw, _ = json.Marshal(e)
-		_, err = tx.Exec(ctx, `INSERT INTO execution_events(account,server,id,broker_time,payload,symbol) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING`, s.Account, s.Server, e.ID, e.Time, raw, s.Symbol)
-		if err != nil {
-			return err
+		tag, execErr := tx.Exec(ctx, `INSERT INTO execution_events(account,server,id,broker_time,payload,symbol) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING`, s.Account, s.Server, e.ID, e.Time, raw, s.Symbol)
+		if execErr != nil {
+			return nil, execErr
+		}
+		if tag.RowsAffected() == 1 {
+			newEvents = append(newEvents, e)
 		}
 	}
-	return tx.Commit(ctx)
+	if err = tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return newEvents, nil
 }
 func (db *candleDatabase) executionHistory(ctx context.Context, v *executionView, pin executionPin, symbols ...string) error {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
