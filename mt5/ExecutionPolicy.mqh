@@ -16,6 +16,6 @@ double ProfitLockStop(double entry,bool buy,double distance=2.0) { return entry+
 
 // Compare the combined net value of both structural targets with the full
 // two-leg stop loss. Both values are in account currency.
-bool PairRewardRiskPass(double reward,double risk,double minimum=1.0) {
+bool PairRewardRiskPass(double reward,double risk,double minimum=0.90) {
  return reward>0 && risk>0 && minimum>0 && reward+0.00000001>=risk*minimum;
 }
