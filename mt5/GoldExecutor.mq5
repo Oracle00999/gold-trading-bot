@@ -1,5 +1,5 @@
 #property strict
-#property version "1.112"
+#property version "1.113"
 #property description "Demo-only executor for Go M3 signals. Attach once per demo account."
 #include <Trade/Trade.mqh>
 #include "ExecutionPolicy.mqh"
@@ -76,7 +76,7 @@ int OnInit() {
  trade.SetDeviationInPoints((ulong)MathCeil(SlippageAllowance/SymbolInfoDouble(TradeSymbol,SYMBOL_POINT)));
  LoadEvents();
  if(!EventSetTimer(1)) return INIT_FAILED;
- Record("started",StringFormat("Executor 1.112 loaded; reconciling broker positions and persistent state. Minimum pair reward/risk %.2f.",MinPairRewardRisk));
+ Record("started",StringFormat("Executor 1.113 loaded; reconciling broker positions and persistent state. Minimum pair reward/risk %.2f.",MinPairRewardRisk));
  Print("Demo executor ready. New entries: ",EnableEntries,"; lots 2 x ",Lots,"; pair risk $",PairRisk,"; daily gate $1000.");
  return INIT_SUCCEEDED;
 }
@@ -519,7 +519,7 @@ void Publish() {
  deals+="]";
  string events="[";for(int i=0;i<ArraySize(eventQueue);i++) {if(i>0) events+=",";events+=eventQueue[i];}events+="]";
  double change=AccountInfoDouble(ACCOUNT_EQUITY)-State("baseline"),remaining=State("blocked")!=0?0:MathMax(0,DailyLoss-MathMax(0,-change));
- string body=StringFormat("{\"demo\":true,\"account\":\"%I64d\",\"server\":\"%s\",\"version\":\"1.112\",\"broker_time\":%I64d,\"connected\":%s,\"enabled\":%s,\"halted\":%s,\"daily_blocked\":%s,\"recovering\":%s,\"history_ok\":%s,\"daily_remaining\":%.8f,\"day_equity_change\":%.8f,\"positions\":%s,\"deals\":%s,\"events\":%s}",DemoLogin,Escape(DemoServer),(long)TimeCurrent(),Bool(TerminalInfoInteger(TERMINAL_CONNECTED)),Bool(State("halt")!=0),Bool(State("blocked")!=0),Bool(State("recovery")!=0),Bool(history),remaining,change,positions,deals,events);
+ string body=StringFormat("{\"demo\":true,\"account\":\"%I64d\",\"server\":\"%s\",\"version\":\"1.113\",\"broker_time\":%I64d,\"connected\":%s,\"enabled\":%s,\"halted\":%s,\"daily_blocked\":%s,\"recovering\":%s,\"history_ok\":%s,\"daily_remaining\":%.8f,\"day_equity_change\":%.8f,\"positions\":%s,\"deals\":%s,\"events\":%s}",DemoLogin,Escape(DemoServer),(long)TimeCurrent(),Bool(TerminalInfoInteger(TERMINAL_CONNECTED)),Bool(EnableEntries && TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) && MQLInfoInteger(MQL_TRADE_ALLOWED)),Bool(State("halt")!=0),Bool(State("blocked")!=0),Bool(State("recovery")!=0),Bool(history),remaining,change,positions,deals,events);
  body=StringSubstr(body,0,StringLen(body)-1)+",\"symbol\":\""+TradeSymbol+"\""+StringFormat(",\"control_revision\":%I64d,\"control_enabled\":%s,\"control_ok\":%s}",controlRevision,Bool(controlEnabled),Bool(controlOK));
  char data[],reply[];int size=StringToCharArray(body,data,0,WHOLE_ARRAY,CP_UTF8);if(size<=0) return;ArrayResize(data,size-1);string headers;
  int status=WebRequest("POST",BridgeURL+APIPath()+"/bridge/execution","Content-Type: application/json\r\nAuthorization: Bearer "+BridgeToken+"\r\n",1500,data,reply,headers);
