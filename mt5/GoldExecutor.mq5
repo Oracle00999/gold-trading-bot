@@ -76,7 +76,7 @@ int OnInit() {
  trade.SetDeviationInPoints((ulong)MathCeil(SlippageAllowance/SymbolInfoDouble(TradeSymbol,SYMBOL_POINT)));
  LoadEvents();
  if(!EventSetTimer(1)) return INIT_FAILED;
- Record("started","Executor 1.112 loaded; reconciling broker positions and persistent state. Minimum pair reward/risk ",MinPairRewardRisk,".");
+ Record("started",StringFormat("Executor 1.112 loaded; reconciling broker positions and persistent state. Minimum pair reward/risk %.2f.",MinPairRewardRisk));
  Print("Demo executor ready. New entries: ",EnableEntries,"; lots 2 x ",Lots,"; pair risk $",PairRisk,"; daily gate $1000.");
  return INIT_SUCCEEDED;
 }
