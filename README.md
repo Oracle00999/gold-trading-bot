@@ -98,9 +98,6 @@ together because prices are distinct, not grouped into zones.
 - Maximum **$200 estimated combined stop risk**.
 - **$1,000 daily equity loss gate**; blocks new entries, does not force-close a
   completed pair. Broker-day equity includes manual activity and cash movements.
-- The combined estimated net result at TP1 and TP2 must be at least the full
-  estimated two-leg stop loss (minimum pair reward/risk **1.0**). It uses the
-  broker's profit calculation, configured slippage, and commission estimate.
 - After the full TP1 position closes by broker take-profit, TP2's stop moves to its
   actual entry plus $2 for buys or minus $2 for sells (gold price units).
   If broker stop/freeze distance prevents modification, the existing stop stays
@@ -239,12 +236,11 @@ $1.00 slippage allowance. Confirm its exact suffix, tick value and volume rules
 in the broker terminal before enabling it. Gold retains its existing price
 distances.
 
-The executor accepts a combined net-target reward of at least 0.90 times the
-two-leg estimated stop loss. This lets near-1:1 setups through after spread and
-costs, while still rejecting materially weak targets. Pair-risk, daily-loss,
-broker stop/target validation and margin checks remain required.
+The executor does not require a target-to-risk ratio. It accepts a setup when it
+has two valid structural targets and passes pair-risk, daily-loss, broker
+stop/target validation and margin checks.
 
-Compile GoldBridge 1.103 and GoldExecutor 1.113. Attach one of each on separate
+Compile GoldBridge 1.103 and GoldExecutor 1.114. Attach one of each on separate
 M3 charts per symbol, setting `GoldSymbol` and `TradeSymbol` to the matching
 symbol. Use `SlippageAllowance=0.00001` for EURUSD, `0.001` for USDJPY and `1.00`
 for BTCUSD. Keep the same account pin and bridge URL/token. Do not run another
